@@ -20,8 +20,9 @@ evaluation-first:
 | Stage | State |
 |---|---|
 | Data download, formula index, qrels in one ID space | done |
-| Topic (query) loading and run-file / metric harness | in progress |
-| BM25 baseline, reproduction of Tangent-CFT numbers | next |
+| Topic (query) loading, visual-ID corpus, run files and metrics | done (tested locally) |
+| BM25 baseline | implemented, first server run pending |
+| Reproduction of Tangent-CFT numbers | next |
 | Graph representation of formulas (symbols, edge types) | planned |
 | Training data (pairs, judged negatives) and GNN encoder | planned |
 
@@ -69,28 +70,81 @@ Runs follow the official ARQMath Task 2 protocol:
 - reported metrics are **nDCG′** (graded relevance), **MAP′** and **P′@10** (grades 2–3 count as relevant),
   computed over every topic in the official qrels.
 
-The official scripts (`de_duplicate_2022.py`, `task2_get_results.py`) are downloaded by `setup.sh` and
-require the `trec_eval` binary.
+Systems retrieve **visual IDs** from a corpus with one representative formula per retrievable visual ID
+(`src/data/visual_index.py`) and write TREC-format run files. `src/eval/metrics.py` computes the metrics
+above with `pytrec_eval`, matching the organizers' settings. It also reports **judged@10**, the share of
+the unfiltered top 10 that is judged: prime metrics only rank judged formulas (a random ordering of all
+judged formulas already scores nDCG′ ≈ 0.64 on ARQMath-2), so they need to be read alongside it.
 
-## Setup
+The official scripts (`de_duplicate_2022.py`, `task2_get_results.py`) are downloaded by `setup.sh`.
+`--official` runs them on the same run for comparison; they require the `trec_eval` binary. The one
+intended difference: `trec_eval` averages only over topics that have judged results, while
+`src/eval/metrics.py` scores such topics as 0.
 
-Data and training live on a GPU server; the steps below are run from the repository root there.
+## Setup and full pipeline
+
+Data and training live on a GPU server. Every command below runs from the repository root there, in
+order; each step depends on the ones before it.
+
+**1. Python environment** (once; versions are pinned from the server's Python 3.8 environment)
 
 ```bash
-# 1. Python environment (Python 3.8; versions pinned from the server environment)
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
+```
 
-# 2. Download ARQMath: collection, formula indexes, topics, topic formulas, qrels, eval scripts
+**2. Download ARQMath** (≈1.8 GB compressed, ≈21 GB unpacked; formula indexes, topics, topic formulas,
+qrels, official eval scripts)
+
+```bash
 bash scripts/setup.sh
+```
 
-# 3. Build the Parquet formula index (~15 min) → data/processed/formula_index_v2/
+**3. Build the Parquet formula index** (~15 min) → `data/processed/formula_index_v2/`
+
+```bash
 python -m src.data.index
+```
 
-# 4. Re-key the ARQMath-1 qrels to v3 visual IDs → data/processed/qrels/task2/arqmath1/
+**4. Re-key the ARQMath-1 qrels to v3 visual IDs** (seconds) → `data/processed/qrels/task2/arqmath1/`
+
+```bash
 python scripts/convert_arqmath1_qrels.py
 ```
 
-Optional diagnostics, whose findings are summarised above:
+**5. Build the visual-ID retrieval corpus** → `data/processed/visual_index/`. Also reports how many
+relevant visual IDs are not retrievable (the recall ceiling) for each year.
+
+```bash
+python -m src.data.visual_index
+```
+
+**6. BM25 baseline**: build the index (→ `data/processed/bm25/`), then retrieve for the dev topics
+(→ `runs/bm25_dev.tsv`)
+
+```bash
+python -m src.baselines.bm25 build
+python -m src.baselines.bm25 search --split dev
+```
+
+**7. Evaluate**
+
+```bash
+python -m src.eval.evaluate runs/bm25_dev.tsv --split dev
+```
+
+**8. Cross-check against the official ARQMath scripts** (once; builds `trec_eval`, no sudo needed)
+
+```bash
+git clone https://github.com/usnistgov/trec_eval.git ~/trec_eval
+make -C ~/trec_eval
+python -m src.eval.evaluate runs/bm25_dev.tsv --split dev --official --trec-eval ~/trec_eval/trec_eval
+```
+
+Tune on `dev` only. Run `search --split test` and evaluate on `test` only for final numbers.
+
+**Optional diagnostics** (after step 3; their findings are summarised under [Data](#data)):
 
 ```bash
 python scripts/check_qrel_ids.py          # which index column each qrel file is keyed on
@@ -107,8 +161,20 @@ scripts/
   inspect_flagged_xml.py     diagnostic: SLT/LaTeX consistency of flagged formulas
 src/
   data/
+    paths.py                 data locations; train/dev/test = ARQMath-1/2/3
     index.py                 build the Parquet formula index from the ARQMath TSVs
+    visual_index.py          build the visual-ID retrieval corpus
+    mathml.py                parse and canonicalise ARQMath MathML
+    topics.py                topics with their official query SLT/OPT
+    qrels.py                 relevance judgments keyed by visual ID
     formula_graph.py         MathML → PyTorch Geometric graphs (to be redesigned)
+  eval/
+    metrics.py               nDCG′ / MAP′ / P′@10 (prime), judged@10
+    runs.py                  run files and official submission files
+    official.py              scoring with the organizers' scripts
+    evaluate.py              command line: score a run file
+  baselines/
+    bm25.py                  BM25 over SLT symbols
   task3/                     earlier prototype, reference only
 configs/                     experiment configs
 docs/

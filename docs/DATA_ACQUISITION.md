@@ -4,12 +4,13 @@ This project uses the formula retrieval data of the **ARQMath** lab (collection 
 formulas from Math Stack Exchange posts written 2010–2018, query formulas from later posts, and human
 relevance judgments for ARQMath Task 2 (formula retrieval) from its three years (2020–2022).
 
-Everything is downloaded by one script and turned into analysis-ready files by two more:
+Everything is downloaded by one script and turned into analysis-ready files by three more:
 
 ```bash
 bash scripts/setup.sh                      # download → data/raw/arqmath/
 python -m src.data.index                   # formula index → data/processed/formula_index_v2/
 python scripts/convert_arqmath1_qrels.py   # ARQMath-1 qrels → data/processed/qrels/task2/arqmath1/
+python -m src.data.visual_index            # retrieval corpus → data/processed/visual_index/
 ```
 
 `setup.sh` is idempotent: existing files are not re-downloaded and extracted archives are not
@@ -181,6 +182,8 @@ data/
 ├── processed/                          (generated, not tracked)
 │   ├── formula_index_v2/                          shard_001.parquet … shard_101.parquet
 │   ├── qrels/task2/arqmath1/                      ARQMath-1 qrels keyed by v3 visual id
+│   ├── visual_index/visual_index.parquet          one representative formula per retrievable visual id
+│   ├── bm25/                                      BM25 index (src.baselines.bm25 build)
 │   └── reports/
 └── samples/                            (tracked)
     └── formula_sample.jsonl                       50 index rows for local testing
