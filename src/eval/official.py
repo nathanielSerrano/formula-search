@@ -10,6 +10,12 @@ Pipeline (as the organizers ran it):
 Requires the trec_eval binary (https://github.com/usnistgov/trec_eval) and the
 LaTeX TSVs from scripts/setup.sh. The dedup script loads all 28M formula ids,
 so expect a few minutes and a few GB of memory.
+
+trec_eval is always called with -c (average over every qrels topic, missing ones
+scoring 0), through a wrapper so the official scripts stay unmodified. Current
+trec_eval exits with "result qid '…' not found in qrels" when a judged topic has
+no results, which happens whenever a system finds nothing judged for a topic.
+-c matches src.eval.metrics and changes nothing for runs that cover every topic.
 """
 
 from __future__ import annotations
@@ -24,6 +30,14 @@ from typing import Dict, Optional, Tuple
 from src.data.paths import EVAL_SCRIPTS_DIR, LATEX_TSV_DIR, qrels_path
 from src.eval.metrics import Run
 from src.eval.runs import write_submission
+
+
+def _complete_averaging(trec_eval: Path, work: Path) -> Path:
+    """A trec_eval wrapper that adds -c."""
+    wrapper = work / "trec_eval_c"
+    wrapper.write_text(f'#!/bin/sh\nexec "{Path(trec_eval).expanduser().resolve()}" -c "$@"\n')
+    wrapper.chmod(0o755)
+    return wrapper
 
 
 def run_official(run: Run, run_id: str, year: str, kind: str, representatives: Dict[str, Tuple[int, int]],
@@ -50,7 +64,7 @@ def run_official(run: Run, run_id: str, year: str, kind: str, representatives: D
                     "-sub", str(sub_dir), "-pri", str(prime_dir)], check=True)
     results = work / "results.tsv"
     subprocess.run([sys.executable, str(EVAL_SCRIPTS_DIR / "task2_get_results.py"),
-                    "-eva", str(trec_eval), "-qre", str(qrels),
+                    "-eva", str(_complete_averaging(trec_eval, work)), "-qre", str(qrels),
                     "-pri", str(prime_dir), "-res", str(results)], check=True)
 
     with results.open(encoding="utf-8") as f:

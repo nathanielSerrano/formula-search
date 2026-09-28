@@ -130,8 +130,8 @@ grade-0 ones.
 | `task2_get_results.py` | Scores prime runs with `trec_eval`: nDCG′, MAP′ and P′@10 (`-l2`: grades 2–3 relevant) |
 
 Runs use the ARQMath Task 2 format `topic_id  formula_id  post_id  rank  score  run_id`. The scripts call
-the `trec_eval` binary, which must be installed separately. Note that `trec_eval` averages only over
-topics present in the run, so every topic must appear in it.
+the `trec_eval` binary, which must be installed separately. Current `trec_eval` refuses a run in which a judged topic has no results ("result qid … not found
+in qrels"); `-c` scores such topics 0 instead, which `src/eval/official.py` always passes.
 
 ---
 

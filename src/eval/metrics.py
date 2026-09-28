@@ -8,11 +8,10 @@ Official protocol (data/raw/arqmath/eval_scripts/arqmath3/):
   4. trec_eval computes nDCG′ with graded relevance, and MAP′ and P′@10 with
      `-l2` (grades 2–3 relevant).
 
-One deliberate difference: trec_eval averages over the topics present in the run,
-so a system that returns nothing for a hard topic is not penalised. Here every
-topic in the qrels counts, and a topic with no judged results scores 0.
-`missing_topics` lists such topics; for a complete run it is empty and the
-numbers equal the official ones.
+Every topic in the qrels counts, and a topic with no judged results scores 0
+(`missing_topics` lists them). This equals trec_eval with -c, which
+src.eval.official uses; trec_eval without -c either skips such topics (older
+versions) or refuses the run (current versions).
 """
 
 from __future__ import annotations

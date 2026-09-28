@@ -44,6 +44,8 @@ def main():
     result = evaluate(run, qrels)
     print(f"{run_id} on {year} ({args.qrels} qrels)")
     print(f"  {result.summary()}")
+    if result.missing_topics:
+        print(f"  topics with no judged results: {', '.join(result.missing_topics)}")
     if unknown:
         print(f"  note: {len(unknown)} run topics have no judgments and are ignored")
 
@@ -64,8 +66,8 @@ def main():
         for m in MEASURES:
             print(f"  {LABELS[m]:<9}  {result.mean[m]:.4f}    {official[m]:.4f}")
         if result.missing_topics:
-            print(f"  (official averages only over the {len(qrels) - len(result.missing_topics)} topics with "
-                  f"judged results; ours counts all {len(qrels)})")
+            print(f"  (both average over all {len(qrels)} topics; trec_eval runs with -c so the "
+                  f"{len(result.missing_topics)} topic(s) without judged results score 0 in both)")
 
 
 if __name__ == "__main__":

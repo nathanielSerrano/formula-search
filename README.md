@@ -77,9 +77,10 @@ the unfiltered top 10 that is judged: prime metrics only rank judged formulas (a
 judged formulas already scores nDCG′ ≈ 0.64 on ARQMath-2), so they need to be read alongside it.
 
 The official scripts (`de_duplicate_2022.py`, `task2_get_results.py`) are downloaded by `setup.sh`.
-`--official` runs them on the same run for comparison; they require the `trec_eval` binary. The one
-intended difference: `trec_eval` averages only over topics that have judged results, while
-`src/eval/metrics.py` scores such topics as 0.
+`--official` runs them on the same run for comparison; they require the `trec_eval` binary. Every
+judged topic counts, and a topic for which a system returns no judged formula scores 0. `--official`
+passes `-c` to `trec_eval` for the same behaviour; without it, current `trec_eval` stops with
+"result qid … not found in qrels" on such a topic.
 
 ## Setup and full pipeline
 
