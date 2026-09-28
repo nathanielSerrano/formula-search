@@ -20,10 +20,10 @@ evaluation-first:
 | Stage | State |
 |---|---|
 | Data download, formula index, qrels in one ID space | done |
-| Topic (query) loading, visual-ID corpus, run files and metrics | done (tested locally) |
-| BM25 baseline | implemented, first server run pending |
-| Reproduction of Tangent-CFT numbers | next |
-| Graph representation of formulas (symbols, edge types) | planned |
+| Topic (query) loading, visual-ID corpus, run files and metrics | done |
+| Validation: matches official scripts; reproduces all 20 published ARQMath-3 runs | done |
+| BM25 baseline (dev: nDCG′ 0.501, MAP′ 0.301, P′@10 0.453) | done |
+| Graph representation of formulas (symbols, edge types) | implemented; corpus vocabulary pending |
 | Training data (pairs, judged negatives) and GNN encoder | planned |
 
 Code under `src/task3/` is from the earlier prototype and is kept only for reference while it is replaced.
@@ -155,6 +155,14 @@ python -m src.eval.import_run data/raw/arqmath/runs/arqmath3/task2/*.tsv
 for f in runs/published/*.tsv; do python -m src.eval.evaluate "$f" --split test; done
 ```
 
+**10. Graph vocabularies and statistics**: converts every visual ID to its SLT and OPT graphs
+(`src/data/formula_graph.py`), writes the symbol/tag vocabularies to `data/processed/graph_vocab.json`
+and graph-size statistics to `data/processed/reports/graph_stats.json`.
+
+```bash
+python -m src.data.graph_stats
+```
+
 Tune on `dev` only. Run `search --split test` and evaluate on `test` only for final numbers.
 
 **Optional diagnostics** (after step 3; their findings are summarised under [Data](#data)):
@@ -180,7 +188,8 @@ src/
     mathml.py                parse and canonicalise ARQMath MathML
     topics.py                topics with their official query SLT/OPT
     qrels.py                 relevance judgments keyed by visual ID
-    formula_graph.py         MathML → PyTorch Geometric graphs (to be redesigned)
+    formula_graph.py         SLT/OPT graphs: symbol nodes, typed edges; vocabularies; PyG input
+    graph_stats.py           build graph vocabularies and size statistics from the corpus
   eval/
     metrics.py               nDCG′ / MAP′ / P′@10 (prime), judged@10
     runs.py                  run files and official submission files
