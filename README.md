@@ -143,6 +143,18 @@ make -C ~/trec_eval
 python -m src.eval.evaluate runs/bm25_dev.tsv --split dev --official --trec-eval ~/trec_eval/trec_eval
 ```
 
+**9. Score the published ARQMath-3 runs** (once): downloads the 20 runs submitted to ARQMath-3 Task 2,
+converts them to visual-ID runs in `runs/published/`, and scores them. The results should match Table 4 of
+the ARQMath-3 overview, e.g. DPRL's Tangent-CFT run (`DPRL-Task2-CFT-auto-math-A`): nDCG′ 0.641,
+MAP′ 0.419, P′@10 0.534. Scoring other systems on the test topics validates the evaluation and does not
+inform any of our own choices.
+
+```bash
+bash scripts/setup.sh --with-runs
+python -m src.eval.import_run data/raw/arqmath/runs/arqmath3/task2/*.tsv
+for f in runs/published/*.tsv; do python -m src.eval.evaluate "$f" --split test; done
+```
+
 Tune on `dev` only. Run `search --split test` and evaluate on `test` only for final numbers.
 
 **Optional diagnostics** (after step 3; their findings are summarised under [Data](#data)):
@@ -174,6 +186,7 @@ src/
     runs.py                  run files and official submission files
     official.py              scoring with the organizers' scripts
     evaluate.py              command line: score a run file
+    import_run.py            convert official ARQMath run files to visual-ID runs
   baselines/
     bm25.py                  BM25 over SLT symbols
   task3/                     earlier prototype, reference only

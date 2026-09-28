@@ -38,7 +38,7 @@ def write_run(run: Run, path: Path, run_id: str, depth: int = MAX_DEPTH) -> None
     with path.open("w", encoding="utf-8") as f:
         for topic in sorted(run):
             for rank, vid in enumerate(ranked(run[topic])[:depth], 1):
-                f.write(f"{topic} Q0 {vid} {rank} {run[topic][vid]:.6f} {run_id}\n")
+                f.write(f"{topic} Q0 {vid} {rank} {float(run[topic][vid])!r} {run_id}\n")
 
 
 def read_run(path: Path) -> Tuple[Run, str]:
@@ -76,5 +76,5 @@ def write_submission(run: Run, path: Path, run_id: str, representatives: Dict[st
                     continue
                 rank += 1
                 formula_id, post_id = representatives[vid]
-                f.write(f"{topic}\t{formula_id}\t{post_id}\t{rank}\t{run[topic][vid]:.6f}\t{run_id}\n")
+                f.write(f"{topic}\t{formula_id}\t{post_id}\t{rank}\t{float(run[topic][vid])!r}\t{run_id}\n")
     return dropped

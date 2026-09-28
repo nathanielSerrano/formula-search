@@ -32,10 +32,16 @@
 # (Posts.V1.3, ~4.1 GB unzipped), plus PostLinks and Tags. The formula pipeline
 # does not need them; they are only useful for looking at a formula's context.
 #
+# Optional (--with-runs): the 20 runs submitted to ARQMath-3 Task 2 (≈100 MB),
+# in data/raw/arqmath/runs/arqmath3/task2/. Scoring them with our pipeline
+# (src.eval.import_run, src.eval.evaluate) and comparing with the published
+# results validates the evaluation and gives per-topic reference systems.
+#
 # Usage:
-#   bash scripts/setup.sh [--with-collection] [--no-unzip]
+#   bash scripts/setup.sh [--with-collection] [--with-runs] [--no-unzip]
 #
 #   --with-collection  Also download the post collection
+#   --with-runs        Also download the published ARQMath-3 Task 2 runs
 #   --no-unzip         Download only; skip extraction of zip files
 #
 # The script is idempotent: files that already exist are not re-downloaded,
@@ -46,15 +52,17 @@ set -euo pipefail
 
 # ─── Parse flags ─────────────────────────────────────────────────────────────
 WITH_COLLECTION=false
+WITH_RUNS=false
 DO_UNZIP=true
 
 for arg in "$@"; do
   case "$arg" in
     --with-collection) WITH_COLLECTION=true ;;
+    --with-runs)       WITH_RUNS=true ;;
     --no-unzip)        DO_UNZIP=false ;;
     *)
       echo "Unknown argument: $arg"
-      echo "Usage: $0 [--with-collection] [--no-unzip]"
+      echo "Usage: $0 [--with-collection] [--with-runs] [--no-unzip]"
       exit 1
       ;;
   esac
@@ -70,6 +78,7 @@ FORMULAS_DIR="$DATA_DIR/formulas"
 TOPICS_DIR="$DATA_DIR/topics/task2"
 QRELS_DIR="$DATA_DIR/qrels/task2"
 EVAL_DIR="$DATA_DIR/eval_scripts"
+RUNS_DIR="$DATA_DIR/runs/arqmath3/task2"
 
 # ─── Base URLs ───────────────────────────────────────────────────────────────
 BASE="https://www.cs.rit.edu/~dprl/ARQMath-backup"
@@ -250,6 +259,35 @@ if [[ "$WITH_COLLECTION" == "true" ]]; then
   if [[ "$DO_UNZIP" == "true" ]]; then
     unzip_archive "$COLLECTION_DIR/Posts.V1.3.zip" "$COLLECTION_DIR"
   fi
+fi
+
+# ─── Published runs (optional) ────────────────────────────────────────────────
+if [[ "$WITH_RUNS" == "true" ]]; then
+  banner "Published ARQMath-3 Task 2 runs (optional)"
+  mkdir -p "$RUNS_DIR"
+  for run in \
+    Baseline-task2-TangentS-auto-math-p \
+    DPRL-Task2-CFT-auto-math-A \
+    DPRL-Task2-CFTED-auto-math-P \
+    DPRL-Task2-LTR-auto-math-A \
+    DPRL-Task2-MathAMR-auto-both-A \
+    DPRL-Task2-RRAMRCFTED-auto-both-A \
+    JU_NITS-task2-formulaL-auto-formula-P \
+    JU_NITS-task2-formulaO-auto-formula-A \
+    JU_NITS-task2-formulaS-auto-formula-A \
+    MathDowsers-task2-L8-auto-math-P \
+    MathDowsers-task2-latex_L8_a035-auto-math-A \
+    MathDowsers-task2-latex_L8_a040-auto-math-A \
+    XYPhoc-task2-xy5-auto-math-a-2022 \
+    XYPhoc-task2-xy5IDF-auto-math-a-2022 \
+    XYPhoc-task2-xy7o4-auto-math-a-2022 \
+    approach0-task2-a0-manual-math-A \
+    approach0-task2-fusion02_ctx-auto-both-A \
+    approach0-task2-fusion_alpha02-manual-both-A \
+    approach0-task2-fusion_alpha03-manual-both-A \
+    approach0-task2-fusion_alpha05-manual-both-P; do
+    download "$BASE/Runs/ARQMath-3/Task%202/${run}.tsv" "$RUNS_DIR/${run}.tsv"
+  done
 fi
 
 # ─── Done ─────────────────────────────────────────────────────────────────────
