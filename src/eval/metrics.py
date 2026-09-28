@@ -50,6 +50,9 @@ def ranked(docs: Dict[str, float]) -> List[str]:
 
 
 def truncate(run: Run, depth: int = MAX_DEPTH) -> Run:
+    """Top `depth` results per topic; depth <= 0 keeps everything (as the official scripts do)."""
+    if depth <= 0:
+        return run
     return {t: {d: docs[d] for d in ranked(docs)[:depth]} for t, docs in run.items()}
 
 

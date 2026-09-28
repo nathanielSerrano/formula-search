@@ -97,7 +97,7 @@ def main():
         run, unmapped = to_visual_run(sub, mapping)
         run_id = re.sub(r"[^A-Za-z0-9_-]", "_", path.stem)
         out = args.out_dir / f"{run_id}.tsv"
-        write_run(run, out, run_id)
+        write_run(run, out, run_id, depth=0)  # keep over-long runs whole; evaluate --depth decides
         n = sum(len(v) for v in sub.values())
         print(f"  {path.name}: {n:,} results → {sum(len(d) for d in run.values()):,} visual ids over {len(run)} topics"
               + (f" ({unmapped:,} unmapped formula ids dropped)" if unmapped else "") + f" → {out}")

@@ -20,7 +20,7 @@ from pathlib import Path
 
 from src.data.paths import resolve_year
 from src.data.qrels import load_qrels
-from src.eval.metrics import LABELS, MEASURES, evaluate
+from src.eval.metrics import LABELS, MAX_DEPTH, MEASURES, evaluate
 from src.eval.runs import read_run
 
 
@@ -32,6 +32,9 @@ def main():
     parser.add_argument("--per-topic", type=Path, help="write per-topic metrics as JSON")
     parser.add_argument("--official", action="store_true", help="also score with the official ARQMath scripts")
     parser.add_argument("--trec-eval", type=Path, help="path to the trec_eval binary (for --official)")
+    parser.add_argument("--depth", type=int, default=MAX_DEPTH,
+                        help=f"results scored per topic (default {MAX_DEPTH}, the ARQMath limit; 0 = all, "
+                             "which is what the official scripts do with over-long runs)")
     args = parser.parse_args()
     if args.official and not args.trec_eval:
         parser.error("--official needs --trec-eval")
@@ -41,7 +44,7 @@ def main():
     run, run_id = read_run(args.run)
 
     unknown = sorted(set(run) - set(qrels))
-    result = evaluate(run, qrels)
+    result = evaluate(run, qrels, depth=args.depth)
     print(f"{run_id} on {year} ({args.qrels} qrels)")
     print(f"  {result.summary()}")
     if result.missing_topics:

@@ -32,12 +32,18 @@ def _check_run_id(run_id: str) -> None:
         raise ValueError(f"run_id {run_id!r} may only contain letters, digits, '_' and '-'")
 
 
+def _top(docs: Dict[str, float], depth: int):
+    """Documents in rank order, cut at `depth` (depth <= 0 keeps all)."""
+    order = ranked(docs)
+    return order[:depth] if depth > 0 else order
+
+
 def write_run(run: Run, path: Path, run_id: str, depth: int = MAX_DEPTH) -> None:
     _check_run_id(run_id)
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as f:
         for topic in sorted(run):
-            for rank, vid in enumerate(ranked(run[topic])[:depth], 1):
+            for rank, vid in enumerate(_top(run[topic], depth), 1):
                 f.write(f"{topic} Q0 {vid} {rank} {float(run[topic][vid])!r} {run_id}\n")
 
 
@@ -70,7 +76,7 @@ def write_submission(run: Run, path: Path, run_id: str, representatives: Dict[st
     with path.open("w", encoding="utf-8") as f:
         for topic in sorted(run):
             rank = 0
-            for vid in ranked(run[topic])[:depth]:
+            for vid in _top(run[topic], depth):
                 if vid not in representatives:
                     dropped += 1
                     continue
