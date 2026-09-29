@@ -24,7 +24,9 @@ import xml.etree.ElementTree as ET
 from typing import Optional
 
 _XML_DECL_RE = re.compile(r"^\s*<\?xml[^>]*\?>")
-_ALTTEXT_RE = re.compile(r'\salttext="[^"]*"')
+_ALTTEXT_RE = re.compile(r"""\salttext=(?:"[^"]*"|'[^']*')""")
+_MPADDED_RE = re.compile(r"</?mpadded\b[^>]*>")
+_BARE_AMP_RE = re.compile(r"&(?!#\d+;|#x[0-9A-Fa-f]+;|[A-Za-z][A-Za-z0-9]*;)")  # '&' not starting an entity
 _BARE_LT_RE = re.compile(r"<(?![A-Za-z/!?])")  # a '<' that cannot start a tag or comment
 
 _WRAPPERS = {"semantics"}
@@ -32,9 +34,19 @@ _DROPPED = {"annotation", "annotation-xml"}
 
 
 def sanitize(xml: str) -> str:
-    """Make ARQMath MathML well-formed: drop the XML declaration and alttext, escape bare '<'."""
+    """
+    Make ARQMath MathML well-formed. Fixes, in order, the defects found in the corpus
+    and topic files (scripts/inspect_graph_failures.py):
+      - XML declaration (ARQMath-1 topics)
+      - alttext attribute, double- or single-quoted, which may hold raw '<' and '&'
+      - <mpadded> tags, often left unclosed (≈5% of corpus SLT); mpadded only adds
+        spacing, so its tags are dropped and its content kept
+      - bare '&' and '<' in text (e.g. <mo>&</mo>, <mo><</mo>)
+    """
     xml = _XML_DECL_RE.sub("", xml.strip())
     xml = _ALTTEXT_RE.sub("", xml)
+    xml = _MPADDED_RE.sub("", xml)
+    xml = _BARE_AMP_RE.sub("&amp;", xml)
     return _BARE_LT_RE.sub("&lt;", xml)
 
 
