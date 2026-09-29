@@ -22,9 +22,11 @@ evaluation-first:
 | Data download, formula index, qrels in one ID space | done |
 | Topic (query) loading, visual-ID corpus, run files and metrics | done |
 | Validation: matches official scripts; reproduces all 20 published ARQMath-3 runs | done |
-| BM25 baseline (dev: nDCG′ 0.501, MAP′ 0.301, P′@10 0.453) | done |
-| Graph representation of formulas (symbols, edge types) | implemented; corpus vocabulary pending |
-| Training data (pairs, judged negatives) and GNN encoder | planned |
+| BM25 baseline (dev: nDCG′ 0.514, MAP′ 0.314, P′@10 0.452) | done |
+| Graph representation of formulas (symbols, edge types), corpus vocabularies | done |
+| Pretraining data: graph store and augmented pairs | done (tested locally) |
+| Training data (pairs, judged negatives) | next |
+| GNN encoder and training | planned |
 
 Code under `src/task3/` is from the earlier prototype and is kept only for reference while it is replaced.
 It targets the old index layout and should not be run.
@@ -163,6 +165,14 @@ and graph-size statistics to `data/processed/reports/graph_stats.json`.
 python -m src.data.graph_stats
 ```
 
+**11. Pretraining graph store**: converts both graphs of every visual ID once into memory-mapped integer
+arrays in `data/processed/pretrain_graphs/` (≈256-node cap), so contrastive pretraining does not parse
+MathML every epoch.
+
+```bash
+python -m src.pretrain.graph_store
+```
+
 Tune on `dev` only. Run `search --split test` and evaluate on `test` only for final numbers.
 
 **Optional diagnostics** (after step 3; their findings are summarised under [Data](#data)):
@@ -196,6 +206,10 @@ src/
     official.py              scoring with the organizers' scripts
     evaluate.py              command line: score a run file
     import_run.py            convert official ARQMath run files to visual-ID runs
+  pretrain/
+    graph_store.py           graphs of every visual ID as memory-mapped arrays
+    augment.py               training views: variable renaming, number changes, crops, dropped graph
+    dataset.py               positive pairs of views and PyG batching
   baselines/
     bm25.py                  BM25 over SLT symbols
   task3/                     earlier prototype, reference only

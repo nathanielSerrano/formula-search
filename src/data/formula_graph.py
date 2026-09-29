@@ -23,7 +23,7 @@ OPT (Content MathML → operator tree)
 
 Symbols are Unicode NFKC-normalised, so the italic 𝑥 of OPT and the x of SLT
 match. GraphVocab maps tags, symbols and edge types to ids (rare symbols → <unk>,
-unseen numbers → length buckets; ids 0/1 are <pad>/<unk>, never shared) and adds
+unseen numbers → length buckets; ids 0/1/2 are <pad>/<unk>/<none>, never shared) and adds
 a reverse type for every edge so messages can flow both ways without losing
 direction. `to_pyg` builds the PyTorch Geometric input.
 """
@@ -296,7 +296,7 @@ def opt_graph(xml: Optional[str]) -> Optional[FormulaGraph]:
 # Vocabulary and model input
 # ---------------------------------------------------------------------------
 
-PAD, UNK = "<pad>", "<unk>"
+PAD, UNK, NONE = "<pad>", "<unk>", "<none>"  # <none>: node without a symbol (mfrac, times, …)
 _NUMERIC_TAGS = {"mn", "cn"}
 _INT_RE = re.compile(r"^\d+$")
 _DEC_RE = re.compile(r"^\d*[.,]\d+$")
@@ -327,14 +327,15 @@ class GraphVocab:
 
     @classmethod
     def build(cls, kind: str, tag_counts: Counter, symbol_counts: Counter, min_count: int = 5) -> "GraphVocab":
-        base = [PAD, UNK]
-        tags = base + sorted(t for t, c in tag_counts.items() if c >= min_count)
-        symbols = base + _BUCKETS + sorted(s for s, c in symbol_counts.items() if c >= min_count)
+        tags = [PAD, UNK] + sorted(t for t, c in tag_counts.items() if c >= min_count)
+        symbols = [PAD, UNK, NONE] + _BUCKETS + sorted(s for s, c in symbol_counts.items() if c >= min_count)
         edge_types = SLT_EDGE_TYPES if kind == "slt" else OPT_EDGE_TYPES
         return cls(kind, {t: i for i, t in enumerate(tags)}, {s: i for i, s in enumerate(symbols)},
                    {e: i for i, e in enumerate(edge_types)})
 
     def symbol_id(self, tag: str, symbol: str) -> int:
+        if not symbol:
+            return self.symbols[NONE]
         if symbol in self.symbols:
             return self.symbols[symbol]
         if tag in _NUMERIC_TAGS and symbol:
