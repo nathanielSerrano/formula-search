@@ -191,6 +191,16 @@ CUDA_VISIBLE_DEVICES=1 python -m src.model.retrieve --checkpoint checkpoints/pre
 python -m src.eval.evaluate runs/gnn_best_dev.tsv --split dev
 ```
 
+**14. Compare and fuse runs.** `compare` reports per-measure differences against a baseline run with a
+paired randomization test, bootstrap 95% intervals and per-topic wins/losses. `fuse` combines runs
+(min-max linear or reciprocal rank fusion); with `--tune` it picks the weight on the split's topics and
+`--cv` gives a cross-validated estimate. Tune fusion weights on `dev` and reuse them unchanged on `test`.
+
+```bash
+python -m src.eval.compare runs/bm25_dev.tsv runs/gnn_best_dev.tsv --split dev --topics 5
+python -m src.eval.fuse runs/bm25_dev.tsv runs/gnn_best_dev.tsv --split dev --tune --cv 5 --out runs/fused_dev.tsv
+```
+
 Tune on `dev` only. Run `search --split test` and evaluate on `test` only for final numbers.
 
 **Optional diagnostics** (after step 3; their findings are summarised under [Data](#data)):
@@ -224,6 +234,8 @@ src/
     official.py              scoring with the organizers' scripts
     evaluate.py              command line: score a run file
     import_run.py            convert official ARQMath run files to visual-ID runs
+    compare.py               paired significance tests and per-topic comparison of runs
+    fuse.py                  linear / reciprocal rank fusion of runs, weight tuning with cross-validation
   pretrain/
     graph_store.py           graphs of every visual ID as memory-mapped arrays
     augment.py               training views: variable renaming, number changes, crops, dropped graph
