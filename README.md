@@ -182,6 +182,15 @@ python -m src.pretrain.train --max-steps 200 --eval-every 100 --out-dir checkpoi
 python -m src.pretrain.train
 ```
 
+**13. Full-corpus retrieval with a checkpoint**: embeds all 8.4M formulas (cached next to the checkpoint,
+~4.3 GB), retrieves the top 1,000 per topic and writes `runs/gnn_<checkpoint>_<split>.tsv`; score it with
+step 7. Inference fits on a 12 GB GPU, so it can run on a second GPU while training continues.
+
+```bash
+CUDA_VISIBLE_DEVICES=1 python -m src.model.retrieve --checkpoint checkpoints/pretrain/best.pt --split dev
+python -m src.eval.evaluate runs/gnn_best_dev.tsv --split dev
+```
+
 Tune on `dev` only. Run `search --split test` and evaluate on `test` only for final numbers.
 
 **Optional diagnostics** (after step 3; their findings are summarised under [Data](#data)):
@@ -224,6 +233,7 @@ src/
     encoder.py               dual-branch GATv2 encoder (SLT + OPT → one 256-d vector)
     loss.py                  symmetric InfoNCE with learnable temperature
     quick_dev.py             fast dev check during training (judged + random distractors)
+    retrieve.py              full-corpus retrieval with a checkpoint → run file
   baselines/
     bm25.py                  BM25 over SLT symbols
   task3/                     earlier prototype, reference only
