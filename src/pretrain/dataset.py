@@ -8,7 +8,7 @@ Contrastive pretraining pairs: two augmented views of the same corpus formula.
                         collate_fn=PairCollator(vocabs))
 
 Each batch holds, for view "a" and view "b", one PyG Batch per representation plus the
-positions of the formulas that have that graph (the others were dropped by augmentation
+positions of the formulas that have that graph (collate_views) (the others were dropped by augmentation
 or have no graph at all). Reverse edges are added here, with type t + T for a forward
 type t out of T, as in GraphVocab.encode.
 
@@ -60,32 +60,44 @@ def with_reverse_edges(g: Dict[str, np.ndarray], n_types: int) -> Tuple[np.ndarr
     return edge_index.astype(np.int64), edge_type.astype(np.int64)
 
 
+def collate_views(views: Sequence[View], n_types: Dict[str, int]) -> dict:
+    """
+    Batch a list of views for the encoder:
+      {"size": B, "slt": {"graphs": Batch, "present": LongTensor} or None, "opt": …}
+    `present` lists the positions (0..B-1) of the views that have that graph.
+    """
+    import torch
+    from torch_geometric.data import Batch, Data
+
+    out: dict = {"size": len(views)}
+    for rep in REPS:
+        data: List = []
+        present: List[int] = []
+        for pos, view in enumerate(views):
+            g = view.get(rep)
+            if g is None or len(g["tag"]) == 0:
+                continue
+            edge_index, edge_type = with_reverse_edges(g, n_types[rep])
+            x = torch.from_numpy(np.stack([g["tag"], g["symbol"]], axis=1).astype(np.int64))
+            data.append(Data(x=x, edge_index=torch.from_numpy(edge_index),
+                             edge_type=torch.from_numpy(edge_type), num_nodes=x.shape[0]))
+            present.append(pos)
+        out[rep] = ({"graphs": Batch.from_data_list(data), "present": torch.tensor(present, dtype=torch.long)}
+                    if data else None)
+    return out
+
+
+def edge_type_counts(vocabs: Dict[str, GraphVocab]) -> Dict[str, int]:
+    """Number of forward edge types per representation (reverse types are offset by this)."""
+    return {rep: len(vocabs[rep].edge_types) for rep in REPS}
+
+
 class PairCollator:
-    """Turns a list of (view_a, view_b) into tensors: {'a'|'b': {rep: {'graphs': Batch, 'present': LongTensor}}}."""
+    """Turns a list of (view_a, view_b) into {"a": batched views, "b": batched views} (see collate_views)."""
 
     def __init__(self, vocabs: Dict[str, GraphVocab]):
-        self.n_types = {rep: len(vocabs[rep].edge_types) for rep in REPS}
-
-    def _side(self, views: Sequence[View]) -> Dict[str, Optional[dict]]:
-        import torch
-        from torch_geometric.data import Batch, Data
-
-        out: Dict[str, Optional[dict]] = {}
-        for rep in REPS:
-            data: List = []
-            present: List[int] = []
-            for pos, view in enumerate(views):
-                g = view[rep]
-                if g is None or len(g["tag"]) == 0:
-                    continue
-                edge_index, edge_type = with_reverse_edges(g, self.n_types[rep])
-                x = torch.from_numpy(np.stack([g["tag"], g["symbol"]], axis=1).astype(np.int64))
-                data.append(Data(x=x, edge_index=torch.from_numpy(edge_index),
-                                 edge_type=torch.from_numpy(edge_type), num_nodes=x.shape[0]))
-                present.append(pos)
-            out[rep] = ({"graphs": Batch.from_data_list(data), "present": torch.tensor(present, dtype=torch.long)}
-                        if data else None)
-        return out
+        self.n_types = edge_type_counts(vocabs)
 
     def __call__(self, batch: Sequence[Tuple[View, View]]) -> dict:
-        return {"size": len(batch), "a": self._side([p[0] for p in batch]), "b": self._side([p[1] for p in batch])}
+        return {"a": collate_views([p[0] for p in batch], self.n_types),
+                "b": collate_views([p[1] for p in batch], self.n_types)}

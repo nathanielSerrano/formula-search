@@ -1,0 +1,37 @@
+# Contrastive pretraining of the dual-branch formula encoder on the corpus graph store.
+# Used by: python -m src.pretrain.train --config configs/pretrain.yaml
+
+model:
+  hidden: 256
+  layers: 4
+  heads: 4
+  dropout: 0.1
+  out_dim: 256
+
+augment:
+  p_rename: 0.8
+  p_numbers: 0.3
+  p_crop: 0.3
+  max_crop: 0.4
+  p_drop_modality: 0.15
+
+train:
+  batch_size: 1024
+  max_steps: 40000
+  lr: 5.0e-4
+  weight_decay: 0.01
+  warmup_steps: 1000
+  grad_clip: 1.0
+  init_temperature: 0.07
+  min_nodes: 3            # anchors need ≥3 nodes in at least one graph
+  num_workers: 8
+  amp: true               # bf16 where supported, else fp16 with loss scaling
+  seed: 0
+  log_every: 50
+  eval_every: 2500        # quick dev check + checkpoint
+
+quick_dev:
+  split: dev              # ARQMath-2; never test
+  distractors: 100000
+
+out_dir: checkpoints/pretrain

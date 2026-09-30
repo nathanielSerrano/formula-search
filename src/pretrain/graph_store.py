@@ -34,7 +34,7 @@ from typing import Dict, List, Optional, Sequence
 
 import numpy as np
 
-from src.data.formula_graph import GraphVocab, load_vocabs, opt_graph, slt_graph
+from src.data.formula_graph import FormulaGraph, GraphVocab, load_vocabs, opt_graph, slt_graph
 from src.data.paths import PROCESSED_DIR, VISUAL_INDEX_DIR
 from src.data.visual_index import iter_batches
 
@@ -136,6 +136,17 @@ def build(out_dir: Path = STORE_DIR, vocab_path: Path = VOCAB_PATH, visual_index
             "seconds": round(time.time() - t0)}
     (out_dir / "meta.json").write_text(json.dumps(meta, indent=2))
     return meta
+
+
+def arrays_from_graph(graph: Optional[FormulaGraph], vocab: GraphVocab,
+                      max_nodes: int = 256) -> Optional[Dict[str, np.ndarray]]:
+    """The GraphStore.get format (forward edges only) for a graph built on the fly, e.g. a query."""
+    if graph is None:
+        return None
+    arrays = vocab.encode(graph, max_nodes)
+    forward = len(arrays["edge_type"]) // 2
+    return {"tag": arrays["tag"], "symbol": arrays["symbol"], "src": arrays["edge_index"][0, :forward],
+            "dst": arrays["edge_index"][1, :forward], "type": arrays["edge_type"][:forward]}
 
 
 class GraphStore:

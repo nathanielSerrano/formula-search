@@ -25,8 +25,8 @@ evaluation-first:
 | BM25 baseline (dev: nDCG′ 0.514, MAP′ 0.314, P′@10 0.452) | done |
 | Graph representation of formulas (symbols, edge types), corpus vocabularies | done |
 | Pretraining data: graph store and augmented pairs | done (tested locally) |
-| Training data (pairs, judged negatives) | next |
-| GNN encoder and training | planned |
+| GNN encoder and contrastive pretraining | implemented (tested locally); first GPU run pending |
+| Supervised fine-tuning data (pairs, judged negatives) | next |
 
 Code under `src/task3/` is from the earlier prototype and is kept only for reference while it is replaced.
 It targets the old index layout and should not be run.
@@ -173,6 +173,15 @@ MathML every epoch.
 python -m src.pretrain.graph_store
 ```
 
+**12. Contrastive pretraining** (GPU; settings in `configs/pretrain.yaml`). Run the short smoke test first
+to check throughput, then the full run (in `tmux` or with `nohup`, since it takes hours). Checkpoints and
+`log.jsonl` go to `checkpoints/pretrain/`; `--resume checkpoints/pretrain/latest.pt` continues a run.
+
+```bash
+python -m src.pretrain.train --max-steps 200 --eval-every 100 --out-dir checkpoints/pretrain_smoke
+python -m src.pretrain.train
+```
+
 Tune on `dev` only. Run `search --split test` and evaluate on `test` only for final numbers.
 
 **Optional diagnostics** (after step 3; their findings are summarised under [Data](#data)):
@@ -210,6 +219,11 @@ src/
     graph_store.py           graphs of every visual ID as memory-mapped arrays
     augment.py               training views: variable renaming, number changes, crops, dropped graph
     dataset.py               positive pairs of views and PyG batching
+    train.py                 contrastive pretraining loop
+  model/
+    encoder.py               dual-branch GATv2 encoder (SLT + OPT → one 256-d vector)
+    loss.py                  symmetric InfoNCE with learnable temperature
+    quick_dev.py             fast dev check during training (judged + random distractors)
   baselines/
     bm25.py                  BM25 over SLT symbols
   task3/                     earlier prototype, reference only
