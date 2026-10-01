@@ -28,7 +28,8 @@ evaluation-first:
 | GNN encoder and contrastive pretraining (dev, no labels: nDCG′ 0.511, MAP′ 0.322, P′@10 0.498) | done |
 | BM25 + GNN reciprocal rank fusion (dev: nDCG′ 0.589, MAP′ 0.378, P′@10 0.522; all p < 0.01 vs BM25) | done |
 | Pretraining variants (batch 2,048; `p_rename` 0.4): GNN alone +0.015–0.017 nDCG′ (p < 0.05), no gain fused | done |
-| Supervised fine-tuning (ARQMath-1 judgments, hard negatives) | implemented (tested locally); GPU run next |
+| Supervised fine-tuning (pairs, lr 5e-5; dev fused: nDCG′ 0.599, MAP′ 0.388, P′@10 0.522) | done |
+| Structural reranker | implemented (tested locally); server run next |
 
 Code under `src/task3/` is from the earlier prototype and is kept only for reference while it is replaced.
 It targets the old index layout and should not be run.
@@ -213,6 +214,19 @@ python -m src.finetune.train
 python -m src.model.retrieve --checkpoint checkpoints/finetune/best.pt --split dev
 ```
 
+**16. Structural reranker.** Reorders the first-stage top-k with a linear pairwise model over
+structural features (Tangent-style symbol-pair and path overlap at exact / unified-variable / structure
+level, tree edit distance, size) plus BM25 and *pretrained*-GNN scores; the fine-tuned GNN's scores
+are not used as features because they are inflated on its own ARQMath-1 training topics. Trained on
+ARQMath-1 judged pairs; regularisation, depth and interpolation with the first stage are chosen on dev.
+
+```bash
+python -m src.rerank.build --split train --judged --qrels all --name train_judged
+python -m src.rerank.build --split dev --run runs/rrf_ft_pa05_dev.tsv --depth 200 --name dev_rrf_ft
+python -m src.rerank.train --train data/processed/rerank/train_judged.npz --dev data/processed/rerank/dev_rrf_ft.npz \
+    --dev-run runs/rrf_ft_pa05_dev.tsv --split dev --out runs/reranked_dev.tsv
+```
+
 Tune on `dev` only. Run `search --split test` and evaluate on `test` only for final numbers.
 
 **Optional diagnostics** (after step 3; their findings are summarised under [Data](#data)):
@@ -261,6 +275,11 @@ src/
     loss.py                  symmetric InfoNCE with learnable temperature
     quick_dev.py             fast dev check during training (judged + random distractors)
     retrieve.py              full-corpus retrieval with a checkpoint → run file
+  rerank/
+    tree_edit.py             Zhang–Shasha tree edit distance
+    features.py              structural query–candidate similarity features
+    build.py                 feature files for judged pairs or first-stage candidates
+    train.py                 pairwise linear reranker: training, selection on dev, applying
   baselines/
     bm25.py                  BM25 over SLT symbols
   task3/                     earlier prototype, reference only
