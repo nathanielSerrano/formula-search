@@ -6,6 +6,7 @@ init_checkpoint: checkpoints/pretrain_rename04/best_rename04.pt
 data:
   split: train            # ARQMath-1 topics
   qrels: all              # all ARQMath-1 judgments (74 topics); or a path to a qrels file
+  p_positive_anchor: 0.5  # share of examples anchored on a relevant formula instead of the query
 
 train:
   batch_topics: 64        # distinct topics per batch, one positive + one hard negative each
@@ -19,6 +20,7 @@ train:
   seed: 0
   log_every: 10
   eval_every: 50          # quick dev check + checkpoint (also run once before training)
+  select_by: map          # quick-dev measure for best.pt: map or ndcg (nDCG′ stays flat during fine-tuning)
 
 quick_dev:
   split: dev              # ARQMath-2; never test

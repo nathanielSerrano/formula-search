@@ -7,7 +7,7 @@ query / positive / hard-negative triples from the training split's judgments
 The check also runs once before the first step, so the log shows where fine-tuning
 starts from.
 
-    <out_dir>/best.pt      best quick-dev nDCG′ (step 0 = the pretrained model)
+    <out_dir>/best.pt      best quick-dev score on train.select_by (step 0 = the pretrained model)
     <out_dir>/latest.pt    last evaluation point
     <out_dir>/log.jsonl    training and evaluation metrics
 
@@ -65,6 +65,7 @@ def main():
     parser.add_argument("--max-steps", type=int)
     parser.add_argument("--eval-every", type=int)
     parser.add_argument("--lr", type=float)
+    parser.add_argument("--p-positive-anchor", type=float, help="overrides data.p_positive_anchor")
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--no-quick-dev", action="store_true")
     args = parser.parse_args()
@@ -74,6 +75,8 @@ def main():
     for key in ("max_steps", "eval_every", "lr"):
         if getattr(args, key) is not None:
             t[key] = getattr(args, key)
+    if args.p_positive_anchor is not None:
+        config["data"]["p_positive_anchor"] = args.p_positive_anchor
     init = args.init or REPO_ROOT / config["init_checkpoint"]
     out_dir = args.out_dir or REPO_ROOT / config["out_dir"]
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -98,7 +101,8 @@ def main():
     if not examples:
         raise SystemExit("no usable training topics")
 
-    dataset = FinetuneTriples(store, examples, seed=t["seed"])
+    dataset = FinetuneTriples(store, examples, seed=t["seed"],
+                              p_positive_anchor=config["data"].get("p_positive_anchor", 0.0))
     sampler = TopicBatchSampler(len(dataset), t["batch_topics"], t["max_steps"], seed=t["seed"])
     loader = DataLoader(dataset, batch_sampler=sampler, num_workers=t["num_workers"],
                         collate_fn=TripleCollator(vocabs), pin_memory=device.type == "cuda")
@@ -114,6 +118,7 @@ def main():
         quick_dev = QuickDev.for_split(store, vocabs, config["quick_dev"]["split"],
                                        n_distractors=config["quick_dev"]["distractors"], seed=t["seed"])
 
+    select_by = t.get("select_by", "ndcg")  # quick-dev measure that chooses best.pt
     log = (out_dir / "log.jsonl").open("a")
     best = -1.0
 
@@ -122,7 +127,7 @@ def main():
         ndcg = -1.0
         if quick_dev is not None:
             result = quick_dev.run(model, device)
-            ndcg = result.mean["ndcg"]
+            ndcg = result.mean[select_by]
             print(f"  quick dev @ {step}: {result.summary()}", flush=True)
             log.write(json.dumps({"step": step, "quick_dev": result.mean}) + "\n")
             log.flush()
@@ -132,7 +137,7 @@ def main():
             best = ndcg
             save_checkpoint(out_dir / "best.pt", model, loss_fn, optimizer, scheduler, scaler,
                             step, 0, best, config, vocab_path)
-            print(f"  new best quick-dev nDCG′ {best:.4f} (step {step}) → {out_dir / 'best.pt'}", flush=True)
+            print(f"  new best quick-dev {select_by} {best:.4f} (step {step}) → {out_dir / 'best.pt'}", flush=True)
 
     checkpoint(0)
     window = {"loss": 0.0, "accuracy": 0.0, "n": 0}
@@ -170,7 +175,7 @@ def main():
         if step % t["eval_every"] == 0 or step == t["max_steps"]:
             checkpoint(step)
     log.close()
-    print(f"done: {step} steps; best quick-dev nDCG′ {best:.4f}")
+    print(f"done: {step} steps; best quick-dev {select_by} {best:.4f}")
 
 
 if __name__ == "__main__":

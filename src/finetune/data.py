@@ -71,10 +71,20 @@ def build_examples(store: GraphStore, vocabs: Dict[str, GraphVocab], qrels: Qrel
 
 
 class FinetuneTriples:
-    """Map-style over topics: item k is (query, one positive, one hard negative) of topic k."""
+    """
+    Map-style over topics: item k is (anchor, positive, hard negative) for topic k.
 
-    def __init__(self, store: GraphStore, examples: Sequence[TopicExamples], seed: int = 0):
+    The anchor is the topic's query formula, or, with probability p_positive_anchor
+    and when the topic has at least two relevant formulas, one of its relevant
+    formulas paired with a different relevant one: two formulas judged relevant to
+    the same query are usually close to each other, and this turns 74 query formulas
+    into hundreds of distinct anchors.
+    """
+
+    def __init__(self, store: GraphStore, examples: Sequence[TopicExamples], seed: int = 0,
+                 p_positive_anchor: float = 0.0):
         self.store, self.examples, self.seed = store, list(examples), seed
+        self.p_positive_anchor = p_positive_anchor
         self.epoch = 0
 
     def set_epoch(self, epoch: int) -> None:
@@ -90,8 +100,11 @@ class FinetuneTriples:
         k, draw = key  # draw: which sampling round, so a topic drawn in many batches gets different pairs
         ex = self.examples[k]
         rng = np.random.default_rng((self.seed, self.epoch, k, draw))
-        pos = int(rng.choice(ex.positives))
         neg = int(rng.choice(ex.negatives)) if ex.negatives else int(rng.integers(len(self.store)))
+        if len(ex.positives) >= 2 and rng.random() < self.p_positive_anchor:
+            anchor, pos = (int(i) for i in rng.choice(ex.positives, size=2, replace=False))
+            return self._view(anchor), self._view(pos), self._view(neg)
+        pos = int(rng.choice(ex.positives))
         return ex.query, self._view(pos), self._view(neg)
 
 
