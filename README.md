@@ -31,7 +31,7 @@ evaluation-first:
 | Supervised fine-tuning (pairs, lr 5e-5; dev fused: nDCG′ 0.599, MAP′ 0.388, P′@10 0.522) | done |
 | Structural reranker on RRF (dev, 5-fold CV: nDCG′ 0.610, MAP′ 0.406, P′@10 0.547; nDCG′ p = 0.033, MAP′ p = 0.018 vs RRF) | done |
 | Reranker ablations (dev, 5-fold CV): depth 300–500 and the prototype-inspired feature group add nothing (base 0.610, base + proto 0.610 nDCG′) | done; base features kept |
-| Final models on ARQMath-1 + 2 (`--split train+dev`, `--stop-at`, `--fixed`) and the test run | implemented (tested locally); server run next |
+| Final models on ARQMath-1 + 2 and the test run (ARQMath-3, 76 topics: nDCG′ 0.728, MAP′ 0.548, P′@10 0.675; matches official scripts; highest nDCG′ of all ARQMath-3 Task 2 runs, best automatic run on all three measures, p ≤ 0.033 vs TangentCFT2ED) | done |
 
 Code under `src/task3/` is from the earlier prototype and is kept only for reference while it is replaced.
 It targets the old index layout and should not be run.
@@ -302,6 +302,7 @@ src/
     import_run.py            convert official ARQMath run files to visual-ID runs
     compare.py               paired significance tests and per-topic comparison of runs
     fuse.py                  linear / reciprocal rank fusion of runs, weight tuning with cross-validation
+    extra_metrics.py         bpref and nDCG / MAP / P at 5, 10, 100, 1000 (prime and standard), beyond the official measures
   pretrain/
     graph_store.py           graphs of every visual ID as memory-mapped arrays
     augment.py               training views: variable renaming, number changes, crops, dropped graph
