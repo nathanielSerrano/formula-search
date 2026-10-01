@@ -24,6 +24,7 @@ Usage
 -----
     python -m src.rerank.build --split train --judged --qrels all --name train_judged
     python -m src.rerank.build --split dev --run runs/rrf_ft_pa05_dev.tsv --depth 500 --name dev_rrf_ft
+    python -m src.rerank.build --split train+dev --judged --qrels all --name train_dev_judged   # final model
 """
 
 from __future__ import annotations
@@ -40,8 +41,8 @@ import pyarrow.compute as pc
 
 from src.baselines.bm25 import INDEX_DIR as BM25_DIR, BM25Index, tokens
 from src.data.formula_graph import load_vocabs, opt_graph, slt_graph
-from src.data.paths import PROCESSED_DIR, REPO_ROOT, VISUAL_INDEX_DIR, resolve_year
-from src.data.topics import load_topics
+from src.data.paths import PROCESSED_DIR, REPO_ROOT, VISUAL_INDEX_DIR
+from src.data.topics import load_split_topics
 from src.eval.metrics import ranked
 from src.eval.runs import read_run
 from src.finetune.train import load_train_qrels
@@ -81,7 +82,7 @@ def _minmax(x: np.ndarray) -> np.ndarray:
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--split", required=True)
+    parser.add_argument("--split", required=True, help="train/dev/test, or '+'-joined (train+dev) with --judged")
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument("--judged", action="store_true", help="candidates = all judged visual ids")
     source.add_argument("--run", type=Path, help="candidates = top --depth of this run")
@@ -102,9 +103,8 @@ def main():
     import torch
     device = torch.device(args.device or ("cuda" if torch.cuda.is_available() else "cpu"))
     t0 = time.time()
-    year = resolve_year(args.split)
-    topics = load_topics(year)
-    qrels = load_train_qrels(args.qrels, year)
+    topics = load_split_topics(args.split)
+    qrels = load_train_qrels(args.qrels, args.split)
 
     # Candidate lists, topic by topic
     if args.judged:

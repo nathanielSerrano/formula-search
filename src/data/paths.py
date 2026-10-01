@@ -9,6 +9,7 @@ steps in README.md.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import List
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -32,6 +33,16 @@ def resolve_year(year_or_split: str) -> str:
     if year not in YEARS:
         raise ValueError(f"Unknown year or split {year_or_split!r}; expected one of {YEARS + tuple(SPLITS)}")
     return year
+
+
+def resolve_years(spec: str) -> List[str]:
+    """A year, a split, or a '+'-joined combination: 'train+dev' → ['arqmath1', 'arqmath2']."""
+    years: List[str] = []
+    for part in spec.split("+"):
+        year = resolve_year(part.strip())
+        if year not in years:
+            years.append(year)
+    return years
 
 
 def topics_dir(year: str) -> Path:

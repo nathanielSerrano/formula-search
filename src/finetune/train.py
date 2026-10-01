@@ -9,13 +9,20 @@ starts from.
 
     <out_dir>/best.pt      best quick-dev score on train.select_by (step 0 = the pretrained model)
     <out_dir>/latest.pt    last evaluation point
+    <out_dir>/final.pt     the model when training ends (at max_steps or --stop-at)
     <out_dir>/log.jsonl    training and evaluation metrics
+
+Final model for test: once dev has fixed the settings, retrain on ARQMath-1 + ARQMath-2
+(--split train+dev) without quick dev, which would now score topics the model trained
+on. --stop-at ends training at the step dev selected, while the learning-rate schedule
+still follows max_steps, so the run matches the dev run up to that step.
 
 Usage
 -----
     python -m src.finetune.train --config configs/finetune.yaml
     python -m src.finetune.train --config configs/finetune.yaml --max-steps 100 --eval-every 25
     python -m src.model.retrieve --checkpoint checkpoints/finetune/best.pt --split dev
+    python -m src.finetune.train --split train+dev --no-quick-dev --stop-at 300 --out-dir checkpoints/finetune_final
 """
 
 from __future__ import annotations
@@ -32,9 +39,9 @@ import yaml
 from torch.utils.data import DataLoader
 
 from src.data.formula_graph import load_vocabs
-from src.data.paths import REPO_ROOT, resolve_year
+from src.data.paths import REPO_ROOT, resolve_years
 from src.data.qrels import load_qrels
-from src.data.topics import load_topics
+from src.data.topics import load_split_topics
 from src.finetune.data import FinetuneTriples, TopicBatchSampler, TripleCollator, build_examples
 from src.model.encoder import batch_to
 from src.model.loss import InfoNCE
@@ -45,9 +52,13 @@ from src.pretrain.train import lr_lambda, param_groups, save_checkpoint
 
 
 def load_train_qrels(spec: str, split: str):
-    """'official' / 'all' for the split's qrels, or a path to a TREC qrels file keyed by visual id."""
+    """'official' / 'all' for the qrels of a split or '+'-joined splits ('train+dev'), or a path
+    to a TREC qrels file keyed by visual id."""
     if spec in ("official", "all"):
-        return load_qrels(resolve_year(split), spec)
+        qrels = {}
+        for year in resolve_years(split):
+            qrels.update(load_qrels(year, spec))  # topic ids differ between years
+        return qrels
     qrels = {}
     for line in Path(spec).read_text().splitlines():
         parts = line.split()
@@ -62,7 +73,9 @@ def main():
     parser.add_argument("--init", type=Path, help="pretrained checkpoint (overrides init_checkpoint)")
     parser.add_argument("--store", type=Path, default=STORE_DIR)
     parser.add_argument("--out-dir", type=Path)
+    parser.add_argument("--split", help="training split(s), e.g. train or train+dev (overrides data.split)")
     parser.add_argument("--max-steps", type=int)
+    parser.add_argument("--stop-at", type=int, help="end training at this step; the LR schedule still follows max_steps")
     parser.add_argument("--eval-every", type=int)
     parser.add_argument("--lr", type=float)
     parser.add_argument("--p-positive-anchor", type=float, help="overrides data.p_positive_anchor")
@@ -77,6 +90,12 @@ def main():
             t[key] = getattr(args, key)
     if args.p_positive_anchor is not None:
         config["data"]["p_positive_anchor"] = args.p_positive_anchor
+    if args.split:
+        config["data"]["split"] = args.split
+    split = config["data"]["split"]
+    if not args.no_quick_dev and set(resolve_years(split)) & set(resolve_years(config["quick_dev"]["split"])):
+        raise SystemExit(f"training split {split!r} includes the quick-dev split; use --no-quick-dev "
+                         f"(and --stop-at with the step chosen on dev)")
     init = args.init or REPO_ROOT / config["init_checkpoint"]
     out_dir = args.out_dir or REPO_ROOT / config["out_dir"]
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -94,9 +113,8 @@ def main():
           flush=True)
 
     store = GraphStore(args.store)
-    split = config["data"]["split"]
     qrels = load_train_qrels(str(config["data"]["qrels"]), split)
-    examples, stats = build_examples(store, vocabs, qrels, load_topics(split))
+    examples, stats = build_examples(store, vocabs, qrels, load_split_topics(split))
     print(f"training data ({split}, {config['data']['qrels']} qrels): {json.dumps(stats)}", flush=True)
     if not examples:
         raise SystemExit("no usable training topics")
@@ -172,10 +190,15 @@ def main():
             log.write(json.dumps(entry) + "\n")
             log.flush()
             window = {"loss": 0.0, "accuracy": 0.0, "n": 0}
-        if step % t["eval_every"] == 0 or step == t["max_steps"]:
+        if step % t["eval_every"] == 0 or step == t["max_steps"] or step == args.stop_at:
             checkpoint(step)
+        if step == args.stop_at:
+            break
     log.close()
-    print(f"done: {step} steps; best quick-dev {select_by} {best:.4f}")
+    save_checkpoint(out_dir / "final.pt", model, loss_fn, optimizer, scheduler, scaler,
+                    step, 0, best, config, vocab_path)
+    summary = f"best quick-dev {select_by} {best:.4f}" if quick_dev is not None else "no quick dev"
+    print(f"done: {step} steps ({summary}) → {out_dir / 'final.pt'}")
 
 
 if __name__ == "__main__":

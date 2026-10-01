@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Dict, Optional
 
 from src.data.mathml import canonical
-from src.data.paths import resolve_year, topics_dir
+from src.data.paths import resolve_year, resolve_years, topics_dir
 
 csv.field_size_limit(sys.maxsize)
 
@@ -53,6 +53,14 @@ def _read_formulas(path: Path) -> Dict[str, str]:
         reader = csv.reader(f, delimiter="\t")
         next(reader)
         return {row[0]: row[4] for row in reader if len(row) > 4}
+
+
+def load_split_topics(spec: str) -> Dict[str, Topic]:
+    """Topics of a year or a '+'-joined combination ('train+dev'); topic ids differ between years."""
+    topics: Dict[str, Topic] = {}
+    for year in resolve_years(spec):
+        topics.update(load_topics(year))
+    return topics
 
 
 @lru_cache(maxsize=None)

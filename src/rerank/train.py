@@ -12,9 +12,13 @@ and the rest of the first-stage list follows unchanged. α = 1 is pure reranking
 α < 1 keeps some of the first stage's ranking (including the fine-tuned GNN, which
 the reranker deliberately does not see as a feature).
 
---features picks the feature set: base (the 44 structural features + BM25 / GNN scores) or
-all (+ the proto group, src.rerank.features), for the ablation; --apply uses the saved
-model's own features.
+--features picks the feature set: base (the 44 structural features + BM25 / GNN scores; the
+chosen set) or all (+ the proto group, src.rerank.features), for the ablation; --apply uses
+the saved model's own features.
+
+--fixed C DEPTH ALPHA trains with a setting already chosen on dev and selects nothing: for
+the final model, trained on ARQMath-1 + ARQMath-2 judgments (src.rerank.build --split
+train+dev --judged) and then applied unchanged to test.
 
 The regularisation C, the depth k and α are chosen on the --dev features (ARQMath-2):
 dev scores of the selected setting are therefore optimistic; apply it unchanged to test.
@@ -27,8 +31,10 @@ Usage
     python -m src.rerank.train --train data/processed/rerank/train_judged.npz \\
         --dev data/processed/rerank/dev_rrf_ft.npz --dev-run runs/rrf_ft_pa05_dev.tsv --split dev \\
         --features all --cv 5 --cv-out runs/reranked_cv_dev.tsv
-    python -m src.rerank.train --apply data/processed/rerank/model.json \\
-        --dev data/processed/rerank/test_rrf_ft.npz --dev-run runs/rrf_ft_pa05_test.tsv --out runs/reranked_test.tsv
+    python -m src.rerank.train --train data/processed/rerank/train_dev_judged.npz --features base \\
+        --fixed 0.1 300 1.0 --model-out data/processed/rerank/model_final.json   # final model, no selection
+    python -m src.rerank.train --apply data/processed/rerank/model_final.json \\
+        --dev data/processed/rerank/test_rrf_final.npz --dev-run runs/rrf_final_test.tsv --out runs/reranked_final_test.tsv
 """
 
 from __future__ import annotations
@@ -183,18 +189,25 @@ def cross_validate(results: Dict[Setting, PerTopic], scores: Dict[float, np.ndar
     return run, chosen
 
 
+def _print_weights(model: LinearReranker, n: int = 12) -> None:
+    top = sorted(zip(model.weights, model.names), key=lambda x: -abs(x[0]))[:n]
+    print("largest weights (standardised features): " + ", ".join(f"{name} {w:+.2f}" for w, name in top))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--train", type=Path, help="judged training features (src.rerank.build --judged)")
     parser.add_argument("--apply", type=Path, help="apply a saved model.json instead of training")
-    parser.add_argument("--dev", type=Path, required=True, help="features of the first-stage candidates to rerank")
-    parser.add_argument("--dev-run", type=Path, required=True, help="the first-stage run those candidates came from")
+    parser.add_argument("--fixed", nargs=3, metavar=("C", "DEPTH", "ALPHA"),
+                        help="train with this setting, no selection (final model; needs only --train)")
+    parser.add_argument("--dev", type=Path, help="features of the first-stage candidates to rerank")
+    parser.add_argument("--dev-run", type=Path, help="the first-stage run those candidates came from")
     parser.add_argument("--split", help="split whose qrels select C / depth / α (training mode)")
     parser.add_argument("--qrels", default="official", help="official / all / path to a qrels file")
     parser.add_argument("--model-out", type=Path, default=PROCESSED_DIR / "rerank/model.json")
     parser.add_argument("--out", type=Path, help="reranked run file")
     parser.add_argument("--run-id", help="run id in the written files (default: the --out / --cv-out file name)")
-    parser.add_argument("--features", choices=FEATURE_SETS, default="all", help="feature set (training mode)")
+    parser.add_argument("--features", choices=FEATURE_SETS, default="base", help="feature set (training modes)")
     parser.add_argument("--cv", type=int, default=0, help="k-fold cross-validated dev estimate (training mode)")
     parser.add_argument("--cv-out", type=Path, help="write the cross-validated run here")
     args = parser.parse_args()
@@ -202,6 +215,24 @@ def main():
         parser.error("--cv needs training mode, not --apply")
     if args.cv_out and not args.cv:
         parser.error("--cv-out needs --cv")
+
+    if args.fixed:
+        if args.train is None or args.apply or args.cv:
+            parser.error("--fixed needs --train and no --apply / --cv")
+        C, depth, alpha = float(args.fixed[0]), int(args.fixed[1]), float(args.fixed[2])
+        train = load_features(args.train)
+        names = feature_set(train, args.features)
+        model = fit(select_features(train, names), C)
+        model.settings.update(depth=depth, alpha=alpha)
+        args.model_out.parent.mkdir(parents=True, exist_ok=True)
+        args.model_out.write_text(json.dumps(model.to_json(), indent=2))
+        n_topics = len(np.unique(train["topics"]))
+        print(f"features: {args.features} ({len(names)}); trained on {n_topics} topics, {len(train['X']):,} judged "
+              f"formulas with C={C}; depth={depth}, α={alpha} fixed → {args.model_out}")
+        _print_weights(model)
+        return
+    if args.dev is None or args.dev_run is None:
+        parser.error("--dev and --dev-run are needed unless --fixed")
 
     dev = load_features(args.dev)
     first_stage, _ = read_run(args.dev_run)
@@ -245,8 +276,7 @@ def main():
         args.model_out.write_text(json.dumps(model.to_json(), indent=2))
         print(f"\nselected C={C}, depth={depth}, α={alpha} (chosen on {args.split}: optimistic)"
               f" → {args.model_out}")
-        top = sorted(zip(model.weights, model.names), key=lambda x: -abs(x[0]))[:12]
-        print("largest weights (standardised features): " + ", ".join(f"{n} {w:+.2f}" for w, n in top))
+        _print_weights(model)
         result_run = rerank(first_stage, dev, scores[C], depth, alpha)
         print(f"reranked on {args.split}: {evaluate(result_run, qrels).summary()}")
 

@@ -31,6 +31,7 @@ evaluation-first:
 | Supervised fine-tuning (pairs, lr 5e-5; dev fused: nDCG′ 0.599, MAP′ 0.388, P′@10 0.522) | done |
 | Structural reranker on RRF (dev, 5-fold CV: nDCG′ 0.610, MAP′ 0.406, P′@10 0.547; nDCG′ p = 0.033, MAP′ p = 0.018 vs RRF) | done |
 | Reranker ablations (dev, 5-fold CV): depth 300–500 and the prototype-inspired feature group add nothing (base 0.610, base + proto 0.610 nDCG′) | done; base features kept |
+| Final models on ARQMath-1 + 2 (`--split train+dev`, `--stop-at`, `--fixed`) and the test run | implemented (tested locally); server run next |
 
 Code under `src/task3/` is from the earlier prototype and is kept only for reference while it is replaced.
 It targets the old index layout and should not be run.
@@ -243,6 +244,30 @@ The selected setting's dev score is optimistic (chosen on the same topics); `--c
 dev topics with the setting chosen on the other folds, an honest estimate to report and compare.
 
 Tune on `dev` only. Run `search --split test` and evaluate on `test` only for final numbers.
+
+**17. Final models and the test run** (once, at the end). With every setting fixed on dev, fine-tuning
+and the reranker are retrained on ARQMath-1 + ARQMath-2 judgments (144 topics). Quick dev cannot select
+checkpoints any more (it would score training topics), so fine-tuning reruns the dev run's configuration
+and stops at the step dev selected (`--stop-at`, read from the dev checkpoint); the reranker is trained
+with the dev-chosen C, depth and α (`--fixed`). Then the whole pipeline runs once on ARQMath-3.
+
+```bash
+python -c "import torch; c = torch.load('checkpoints/finetune_pa05/best_ft_pa05.pt', map_location='cpu'); print(c['step'], c['config'])"
+python -m src.finetune.train --split train+dev --no-quick-dev --stop-at <STEP> --out-dir checkpoints/finetune_final
+python -m src.rerank.build --split train+dev --judged --qrels all --name train_dev_judged
+python -m src.rerank.train --train data/processed/rerank/train_dev_judged.npz --features base --fixed 0.1 300 1.0 \
+    --model-out data/processed/rerank/model_final.json
+
+python -m src.baselines.bm25 search --split test
+python -m src.model.retrieve --checkpoint checkpoints/finetune_final/final.pt --split test --run-id gnn_ft_final
+python -m src.eval.fuse runs/bm25_test.tsv runs/gnn_ft_final_test.tsv --method rrf --run-id rrf_final --out runs/rrf_final_test.tsv
+python -m src.rerank.build --split test --run runs/rrf_final_test.tsv --depth 300 --name test_rrf_final
+python -m src.rerank.train --apply data/processed/rerank/model_final.json --dev data/processed/rerank/test_rrf_final.npz \
+    --dev-run runs/rrf_final_test.tsv --out runs/reranked_final_test.tsv
+
+python -m src.eval.compare runs/bm25_test.tsv runs/gnn_ft_final_test.tsv runs/rrf_final_test.tsv runs/reranked_final_test.tsv --split test
+python -m src.eval.evaluate runs/reranked_final_test.tsv --split test --official --trec-eval ~/trec_eval/trec_eval
+```
 
 **Optional diagnostics** (after step 3; their findings are summarised under [Data](#data)):
 
