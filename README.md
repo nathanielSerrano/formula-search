@@ -30,7 +30,7 @@ evaluation-first:
 | Pretraining variants (batch 2,048; `p_rename` 0.4): GNN alone +0.015–0.017 nDCG′ (p < 0.05), no gain fused | done |
 | Supervised fine-tuning (pairs, lr 5e-5; dev fused: nDCG′ 0.599, MAP′ 0.388, P′@10 0.522) | done |
 | Structural reranker on RRF (dev, 5-fold CV: nDCG′ 0.610, MAP′ 0.406, P′@10 0.547; nDCG′ p = 0.033, MAP′ p = 0.018 vs RRF) | done |
-| Reranker: prototype-inspired feature group, depth up to 500 (ablation vs base features) | implemented (tested locally); server run next |
+| Reranker ablations (dev, 5-fold CV): depth 300–500 and the prototype-inspired feature group add nothing (base 0.610, base + proto 0.610 nDCG′) | done; base features kept |
 
 Code under `src/task3/` is from the earlier prototype and is kept only for reference while it is replaced.
 It targets the old index layout and should not be run.

@@ -101,7 +101,10 @@ def main():
     results: Dict[str, EvalResult] = {}
     for path in args.runs:
         run, run_id = read_run(path)
-        results[run_id or path.stem] = evaluate(run, qrels)
+        name = run_id if run_id and run_id not in results else path.stem  # files may share a run id
+        if name in results:
+            name = f"{path.stem}#{len(results)}"
+        results[name] = evaluate(run, qrels)
     names = list(results)
     base = names[0]
     print(f"{len(qrels)} topics ({resolve_year(args.split)}, {args.qrels} qrels); baseline: {base}")

@@ -193,7 +193,7 @@ def main():
     parser.add_argument("--qrels", default="official", help="official / all / path to a qrels file")
     parser.add_argument("--model-out", type=Path, default=PROCESSED_DIR / "rerank/model.json")
     parser.add_argument("--out", type=Path, help="reranked run file")
-    parser.add_argument("--run-id", default="reranked")
+    parser.add_argument("--run-id", help="run id in the written files (default: the --out / --cv-out file name)")
     parser.add_argument("--features", choices=FEATURE_SETS, default="all", help="feature set (training mode)")
     parser.add_argument("--cv", type=int, default=0, help="k-fold cross-validated dev estimate (training mode)")
     parser.add_argument("--cv-out", type=Path, help="write the cross-validated run here")
@@ -255,11 +255,11 @@ def main():
             print(f"\n{args.cv}-fold cross-validated on {args.split}: {evaluate(cv_run, qrels).summary()}")
             print("fold settings (C, depth, α): " + ", ".join(f"({c}, {d}, {a})" for c, d, a in chosen))
             if args.cv_out:
-                write_run(cv_run, args.cv_out, f"{args.run_id}_cv")
+                write_run(cv_run, args.cv_out, f"{args.run_id}_cv" if args.run_id else args.cv_out.stem)
                 print(f"wrote {args.cv_out}")
 
     if args.out:
-        write_run(result_run, args.out, args.run_id)
+        write_run(result_run, args.out, args.run_id or args.out.stem)
         print(f"wrote {args.out}")
 
 
