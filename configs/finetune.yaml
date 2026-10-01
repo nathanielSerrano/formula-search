@@ -1,0 +1,27 @@
+# Supervised fine-tuning of a pretrained formula encoder on ARQMath relevance judgments.
+# Used by: python -m src.finetune.train --config configs/finetune.yaml
+
+init_checkpoint: checkpoints/pretrain_rename04/best_rename04.pt
+
+data:
+  split: train            # ARQMath-1 topics
+  qrels: all              # all ARQMath-1 judgments (74 topics); or a path to a qrels file
+
+train:
+  batch_topics: 64        # distinct topics per batch, one positive + one hard negative each
+  max_steps: 600
+  lr: 5.0e-5
+  weight_decay: 0.01
+  warmup_steps: 50
+  grad_clip: 1.0
+  num_workers: 4
+  amp: true
+  seed: 0
+  log_every: 10
+  eval_every: 50          # quick dev check + checkpoint (also run once before training)
+
+quick_dev:
+  split: dev              # ARQMath-2; never test
+  distractors: 100000
+
+out_dir: checkpoints/finetune

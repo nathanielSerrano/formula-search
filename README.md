@@ -25,8 +25,10 @@ evaluation-first:
 | BM25 baseline (dev: nDCG′ 0.514, MAP′ 0.314, P′@10 0.452) | done |
 | Graph representation of formulas (symbols, edge types), corpus vocabularies | done |
 | Pretraining data: graph store and augmented pairs | done (tested locally) |
-| GNN encoder and contrastive pretraining | implemented (tested locally); first GPU run pending |
-| Supervised fine-tuning data (pairs, judged negatives) | next |
+| GNN encoder and contrastive pretraining (dev, no labels: nDCG′ 0.511, MAP′ 0.322, P′@10 0.498) | done |
+| BM25 + GNN reciprocal rank fusion (dev: nDCG′ 0.589, MAP′ 0.378, P′@10 0.522; all p < 0.01 vs BM25) | done |
+| Pretraining variants (batch 2,048; `p_rename` 0.4): GNN alone +0.015–0.017 nDCG′ (p < 0.05), no gain fused | done |
+| Supervised fine-tuning (ARQMath-1 judgments, hard negatives) | implemented (tested locally); GPU run next |
 
 Code under `src/task3/` is from the earlier prototype and is kept only for reference while it is replaced.
 It targets the old index layout and should not be run.
@@ -201,6 +203,16 @@ python -m src.eval.compare runs/bm25_dev.tsv runs/gnn_best_dev.tsv --split dev -
 python -m src.eval.fuse runs/bm25_dev.tsv runs/gnn_best_dev.tsv --split dev --tune --cv 5 --out runs/fused_dev.tsv
 ```
 
+**15. Supervised fine-tuning** (GPU; `configs/finetune.yaml`): starts from a pretrained checkpoint and
+trains on ARQMath-1 judgments: each batch has 64 distinct topics, each with its official query formula,
+one relevant formula (grade 2–3) and one judged non-relevant formula (grade 0–1) as a hard negative.
+Checkpoints are selected with the quick dev check, which also runs before the first step for reference.
+
+```bash
+python -m src.finetune.train
+python -m src.model.retrieve --checkpoint checkpoints/finetune/best.pt --split dev
+```
+
 Tune on `dev` only. Run `search --split test` and evaluate on `test` only for final numbers.
 
 **Optional diagnostics** (after step 3; their findings are summarised under [Data](#data)):
@@ -241,6 +253,9 @@ src/
     augment.py               training views: variable renaming, number changes, crops, dropped graph
     dataset.py               positive pairs of views and PyG batching
     train.py                 contrastive pretraining loop
+  finetune/
+    data.py                  query / positive / hard-negative triples from judgments, topic-distinct batches
+    train.py                 supervised fine-tuning loop
   model/
     encoder.py               dual-branch GATv2 encoder (SLT + OPT → one 256-d vector)
     loss.py                  symmetric InfoNCE with learnable temperature
