@@ -29,7 +29,8 @@ evaluation-first:
 | BM25 + GNN reciprocal rank fusion (dev: nDCG′ 0.589, MAP′ 0.378, P′@10 0.522; all p < 0.01 vs BM25) | done |
 | Pretraining variants (batch 2,048; `p_rename` 0.4): GNN alone +0.015–0.017 nDCG′ (p < 0.05), no gain fused | done |
 | Supervised fine-tuning (pairs, lr 5e-5; dev fused: nDCG′ 0.599, MAP′ 0.388, P′@10 0.522) | done |
-| Structural reranker on RRF (dev, setting chosen on dev: nDCG′ 0.611, MAP′ 0.408, P′@10 0.541; nDCG′/MAP′ p < 0.05 vs RRF) | done; cross-validated estimate next |
+| Structural reranker on RRF (dev, 5-fold CV: nDCG′ 0.610, MAP′ 0.406, P′@10 0.547; nDCG′ p = 0.033, MAP′ p = 0.018 vs RRF) | done |
+| Reranker: prototype-inspired feature group, depth up to 500 (ablation vs base features) | implemented (tested locally); server run next |
 
 Code under `src/task3/` is from the earlier prototype and is kept only for reference while it is replaced.
 It targets the old index layout and should not be run.
@@ -220,12 +221,22 @@ level, tree edit distance, size) plus BM25 and *pretrained*-GNN scores; the fine
 are not used as features because they are inflated on its own ARQMath-1 training topics. Trained on
 ARQMath-1 judged pairs; regularisation, depth and interpolation with the first stage are chosen on dev.
 
+A second feature group ("proto") ports the ideas of the earlier prototype's hand-written reranker as
+learnable features: variables renamed by first appearance (keeps co-reference: x·x ≠ x·y), three-edge
+paths, IDF-weighted overlap (document frequencies from a 100k-formula corpus sample, cached in
+`data/processed/rerank/idf_100000_0.npz`) and tree edit distance with commutative operands sorted.
+`--features base|all` trains without or with it, for the ablation.
+
 ```bash
 python -m src.rerank.build --split train --judged --qrels all --name train_judged
-python -m src.rerank.build --split dev --run runs/rrf_ft_pa05_dev.tsv --depth 200 --name dev_rrf_ft
+python -m src.rerank.build --split dev --run runs/rrf_ft_pa05_dev.tsv --depth 500 --name dev_rrf_ft
 python -m src.rerank.train --train data/processed/rerank/train_judged.npz --dev data/processed/rerank/dev_rrf_ft.npz \
-    --dev-run runs/rrf_ft_pa05_dev.tsv --split dev --out runs/reranked_dev.tsv --cv 5 --cv-out runs/reranked_cv_dev.tsv
-python -m src.eval.compare runs/rrf_ft_pa05_dev.tsv runs/reranked_cv_dev.tsv --split dev
+    --dev-run runs/rrf_ft_pa05_dev.tsv --split dev --features base --model-out data/processed/rerank/model_base.json \
+    --out runs/reranked_base_dev.tsv --cv 5 --cv-out runs/reranked_base_cv_dev.tsv
+python -m src.rerank.train --train data/processed/rerank/train_judged.npz --dev data/processed/rerank/dev_rrf_ft.npz \
+    --dev-run runs/rrf_ft_pa05_dev.tsv --split dev --features all --model-out data/processed/rerank/model_all.json \
+    --out runs/reranked_all_dev.tsv --cv 5 --cv-out runs/reranked_all_cv_dev.tsv
+python -m src.eval.compare runs/rrf_ft_pa05_dev.tsv runs/reranked_base_cv_dev.tsv runs/reranked_all_cv_dev.tsv --split dev
 ```
 
 The selected setting's dev score is optimistic (chosen on the same topics); `--cv 5` reranks each fold of
@@ -281,7 +292,7 @@ src/
     retrieve.py              full-corpus retrieval with a checkpoint → run file
   rerank/
     tree_edit.py             Zhang–Shasha tree edit distance
-    features.py              structural query–candidate similarity features
+    features.py              structural query–candidate similarity features (base + proto groups, IDF table)
     build.py                 feature files for judged pairs or first-stage candidates
     train.py                 pairwise linear reranker: training, selection on dev, applying
   baselines/

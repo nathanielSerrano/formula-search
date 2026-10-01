@@ -13,19 +13,24 @@ Features (src.rerank.features.FEATURE_NAMES, then):
                              saw relevance judgments; fine-tuned scores would be inflated on
                              the topics the fine-tuned model was trained on
 
+The proto group's IDF-weighted overlaps use document frequencies from a seeded random
+sample of --idf-sample corpus formulas, cached as data/processed/rerank/idf_<n>_<seed>.npz
+so every feature file built with the same settings shares one table.
+
 Output: data/processed/rerank/<name>.npz with topics, visual_ids, grades (−1 = unjudged),
 X and feature names.
 
 Usage
 -----
     python -m src.rerank.build --split train --judged --qrels all --name train_judged
-    python -m src.rerank.build --split dev --run runs/rrf_ft_pa05_dev.tsv --depth 200 --name dev_rrf_ft
+    python -m src.rerank.build --split dev --run runs/rrf_ft_pa05_dev.tsv --depth 500 --name dev_rrf_ft
 """
 
 from __future__ import annotations
 
 import argparse
 import time
+from multiprocessing import Pool
 from pathlib import Path
 from typing import Dict, List, Tuple
 
@@ -44,7 +49,7 @@ from src.model.quick_dev import encode_views, topic_views
 from src.model.retrieve import load_checkpoint
 from src.pretrain.dataset import edge_type_counts
 from src.pretrain.graph_store import REPS, STORE_DIR, GraphStore
-from src.rerank.features import FEATURE_NAMES, pair_features, prepare
+from src.rerank.features import FEATURE_NAMES, IdfTable, formula_keys, pair_features, prepare
 
 OUT_DIR = PROCESSED_DIR / "rerank"
 EXTRA_FEATURES = ["bm25", "bm25_norm", "gnn_pre", "gnn_pre_norm"]
@@ -64,6 +69,11 @@ def load_formulas(visual_ids: set, visual_index_dir: Path = VISUAL_INDEX_DIR) ->
     return out
 
 
+def _formula_keys(item: Tuple[str, str]) -> np.ndarray:
+    slt, opt = item
+    return formula_keys([prepare(slt_graph(slt), trees=False), prepare(opt_graph(opt), trees=False)])
+
+
 def _minmax(x: np.ndarray) -> np.ndarray:
     lo, hi = (x.min(), x.max()) if len(x) else (0.0, 0.0)
     return (x - lo) / (hi - lo) if hi > lo else np.ones_like(x)
@@ -75,7 +85,7 @@ def main():
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument("--judged", action="store_true", help="candidates = all judged visual ids")
     source.add_argument("--run", type=Path, help="candidates = top --depth of this run")
-    parser.add_argument("--depth", type=int, default=200)
+    parser.add_argument("--depth", type=int, default=500)
     parser.add_argument("--qrels", default="official", help="official / all / path (grades, and candidates with --judged)")
     parser.add_argument("--pretrained", type=Path, default=REPO_ROOT / "checkpoints/pretrain_rename04/best_rename04.pt")
     parser.add_argument("--name", required=True)
@@ -84,6 +94,9 @@ def main():
     parser.add_argument("--visual-index-dir", type=Path, default=VISUAL_INDEX_DIR)
     parser.add_argument("--bm25-dir", type=Path, default=BM25_DIR)
     parser.add_argument("--device", default=None)
+    parser.add_argument("--idf-sample", type=int, default=100_000, help="corpus formulas sampled for IDF")
+    parser.add_argument("--idf-seed", type=int, default=0)
+    parser.add_argument("--workers", type=int, default=8, help="processes for the IDF sample")
     args = parser.parse_args()
 
     import torch
@@ -114,9 +127,28 @@ def main():
         print(f"warning: {len(missing)} candidates not in the corpus are skipped", flush=True)
         candidates = {t: [v for v in vids if v in row] for t, vids in candidates.items()}
 
+    # IDF table from a random corpus sample (cached), read in the same pass as the candidates
+    idf_path = args.out_dir / f"idf_{args.idf_sample}_{args.idf_seed}.npz"
+    sample: List[str] = []
+    if not idf_path.exists():
+        picks = np.random.default_rng(args.idf_seed).choice(len(store), min(args.idf_sample, len(store)), replace=False)
+        sample = [store.visual_ids[i] for i in sorted(picks)]
+    formulas = load_formulas(set(row) | set(sample), args.visual_index_dir)
+    if idf_path.exists():
+        idf = IdfTable.load(idf_path)
+        print(f"using IDF table {idf_path} ({idf.n_docs:,} formulas)", flush=True)
+    else:
+        items = [formulas[v][1:] for v in sample if v in formulas]
+        with Pool(args.workers) as pool:
+            idf = IdfTable.from_formulas(pool.imap(_formula_keys, items, chunksize=500))
+        args.out_dir.mkdir(parents=True, exist_ok=True)
+        idf.save(idf_path)
+        print(f"IDF table from {idf.n_docs:,} sampled formulas: {len(idf.keys):,} keys → {idf_path} "
+              f"({time.time() - t0:.0f}s)", flush=True)
+
     # Candidate formulas → prepared graphs (from the original MathML, so rare symbols match exactly)
-    formulas = load_formulas(set(row), args.visual_index_dir)
-    prepared = {v: {"slt": prepare(slt_graph(s)), "opt": prepare(opt_graph(o))} for v, (_, s, o) in formulas.items()}
+    prepared = {v: {"slt": prepare(slt_graph(formulas[v][1]), idf), "opt": prepare(opt_graph(formulas[v][2]), idf)}
+                for v in row if v in formulas}
     print(f"prepared {len(prepared):,} candidate formulas ({time.time() - t0:.0f}s)", flush=True)
 
     # Pretrained-encoder vectors for queries and candidates
@@ -139,7 +171,7 @@ def main():
         if not vids:
             continue
         topic = topics[t]
-        q = {"slt": prepare(slt_graph(topic.slt)), "opt": prepare(opt_graph(topic.opt))}
+        q = {"slt": prepare(slt_graph(topic.slt), idf), "opt": prepare(opt_graph(topic.opt), idf)}
         struct = np.stack([pair_features(q, prepared[v]) for v in vids])
         # BM25 scores of exactly these candidates
         qtf: Dict[str, int] = {}

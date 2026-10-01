@@ -12,6 +12,10 @@ and the rest of the first-stage list follows unchanged. α = 1 is pure reranking
 α < 1 keeps some of the first stage's ranking (including the fine-tuned GNN, which
 the reranker deliberately does not see as a feature).
 
+--features picks the feature set: base (the 44 structural features + BM25 / GNN scores) or
+all (+ the proto group, src.rerank.features), for the ablation; --apply uses the saved
+model's own features.
+
 The regularisation C, the depth k and α are chosen on the --dev features (ARQMath-2):
 dev scores of the selected setting are therefore optimistic; apply it unchanged to test.
 --cv k gives an honest dev estimate: topics are split into k folds, and each fold is
@@ -22,7 +26,7 @@ Usage
 -----
     python -m src.rerank.train --train data/processed/rerank/train_judged.npz \\
         --dev data/processed/rerank/dev_rrf_ft.npz --dev-run runs/rrf_ft_pa05_dev.tsv --split dev \\
-        --cv 5 --cv-out runs/reranked_cv_dev.tsv
+        --features all --cv 5 --cv-out runs/reranked_cv_dev.tsv
     python -m src.rerank.train --apply data/processed/rerank/model.json \\
         --dev data/processed/rerank/test_rrf_ft.npz --dev-run runs/rrf_ft_pa05_test.tsv --out runs/reranked_test.tsv
 """
@@ -41,16 +45,32 @@ from src.data.paths import PROCESSED_DIR
 from src.eval.metrics import Run, evaluate, ranked
 from src.eval.runs import read_run, write_run
 from src.finetune.train import load_train_qrels
+from src.rerank.features import PROTO_FEATURE_NAMES
 
 C_GRID = (0.001, 0.01, 0.1, 1.0)
 ALPHA_GRID = tuple(round(a, 1) for a in np.linspace(0, 1, 11))
-DEPTHS = (50, 100, 200)
+DEPTHS = (50, 100, 200, 300, 500)  # only those the features file covers are tried
+FEATURE_SETS = ("base", "all")
 MAX_PAIRS_PER_TOPIC = 5000
 
 
 def load_features(path: Path) -> dict:
     data = np.load(path, allow_pickle=False)
     return {k: data[k] for k in data.files}
+
+
+def feature_set(feat: dict, which: str) -> List[str]:
+    names = [str(n) for n in feat["names"]]
+    return names if which == "all" else [n for n in names if n not in set(PROTO_FEATURE_NAMES)]
+
+
+def select_features(feat: dict, names: Sequence[str]) -> dict:
+    """`feat` restricted to the named columns of X, in that order."""
+    have = {str(n): i for i, n in enumerate(feat["names"])}
+    missing = [n for n in names if n not in have]
+    if missing:
+        raise SystemExit(f"features file lacks {len(missing)} features, e.g. {missing[:3]}; rebuild it")
+    return {**feat, "X": feat["X"][:, [have[n] for n in names]], "names": np.array(list(names))}
 
 
 def pairwise_examples(feat: dict, seed: int = 0) -> Tuple[np.ndarray, np.ndarray]:
@@ -174,6 +194,7 @@ def main():
     parser.add_argument("--model-out", type=Path, default=PROCESSED_DIR / "rerank/model.json")
     parser.add_argument("--out", type=Path, help="reranked run file")
     parser.add_argument("--run-id", default="reranked")
+    parser.add_argument("--features", choices=FEATURE_SETS, default="all", help="feature set (training mode)")
     parser.add_argument("--cv", type=int, default=0, help="k-fold cross-validated dev estimate (training mode)")
     parser.add_argument("--cv-out", type=Path, help="write the cross-validated run here")
     args = parser.parse_args()
@@ -187,16 +208,19 @@ def main():
 
     if args.apply:
         model = LinearReranker.from_json(json.loads(args.apply.read_text()))
-        if model.names != [str(n) for n in dev["names"]]:
-            raise SystemExit("feature names differ between the model and the features file")
+        dev = select_features(dev, model.names)
         s = model.settings
         result_run = rerank(first_stage, dev, model.score(dev["X"]), s["depth"], s["alpha"])
         print(f"applied {args.apply}: C={s['C']}, depth={s['depth']}, α={s['alpha']}")
     else:
         if args.train is None or args.split is None:
             parser.error("training needs --train and --split")
-        train = load_features(args.train)
+        names = feature_set(dev, args.features)
+        train, dev = select_features(load_features(args.train), names), select_features(dev, names)
         qrels = load_train_qrels(args.qrels, args.split)
+        covered = int(np.unique(dev["topics"], return_counts=True)[1].max())
+        depths = [d for d in DEPTHS if d <= covered] or [covered]
+        print(f"features: {args.features} ({len(names)}); depths {depths} (features cover the top {covered})")
         print(f"first stage on {args.split}: {evaluate(first_stage, qrels).summary()}")
         topics = list(qrels)
         models: Dict[float, LinearReranker] = {}
@@ -205,7 +229,7 @@ def main():
         for C in C_GRID:
             models[C] = fit(train, C)
             scores[C] = models[C].score(dev["X"])
-            for depth in DEPTHS:
+            for depth in depths:
                 row = {}
                 for a in ALPHA_GRID:
                     row[(C, depth, a)] = evaluate(rerank(first_stage, dev, scores[C], depth, a), qrels).per_topic
