@@ -8,6 +8,7 @@ data/processed/
 # ── Model artifacts and run outputs ─────────────────────────────────────────
 checkpoints/
 runs/
+logs/
 *.faiss
 *.pt
 *.db

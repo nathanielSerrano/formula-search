@@ -23,7 +23,7 @@ Per representation also:
   missing                      1 if either formula lacks this graph (its features are 0)
 
 Proto group (PROTO_FEATURE_NAMES): the ideas of the earlier prototype's hand-written
-reranker (src/task3/eval/phase4_structural_reranker.py), as learnable features:
+reranker (src/task3/eval/phase4_structural_reranker.py, removed; see commit b0eb6c2), as learnable features:
   alpha_{edge,path}_*          the overlaps above at the alpha level
   <level>_path3_*              three-edge paths, at all four levels
   idf_<level>_<kind>_{recall,precision}

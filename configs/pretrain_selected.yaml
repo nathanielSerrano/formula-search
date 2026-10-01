@@ -1,0 +1,41 @@
+# The pretraining configuration of the model every later stage builds on
+# (checkpoints/pretrain_rename04/best_rename04.pt), copied from that checkpoint's stored config.
+# Differs from configs/pretrain.yaml in p_rename (0.4 instead of 0.8) and the shorter schedule
+# (5,000 steps, quick dev every 500). best.pt is chosen by quick-dev nDCG′ on ARQMath-2; in our run
+# that was step 4,000.
+# Used by: python -m src.pretrain.train --config configs/pretrain_selected.yaml   (scripts/reproduce.sh)
+
+model:
+  hidden: 256
+  layers: 4
+  heads: 4
+  dropout: 0.1
+  out_dim: 256
+
+augment:
+  p_rename: 0.4
+  p_numbers: 0.3
+  p_crop: 0.3
+  max_crop: 0.4
+  p_drop_modality: 0.15
+
+train:
+  batch_size: 1024
+  max_steps: 5000
+  lr: 5.0e-4
+  weight_decay: 0.01
+  warmup_steps: 1000
+  grad_clip: 1.0
+  init_temperature: 0.07
+  min_nodes: 3
+  num_workers: 8
+  amp: true
+  seed: 0
+  log_every: 50
+  eval_every: 500
+
+quick_dev:
+  split: dev              # ARQMath-2; never test
+  distractors: 100000
+
+out_dir: checkpoints/pretrain_rename04
