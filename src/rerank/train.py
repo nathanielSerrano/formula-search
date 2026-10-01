@@ -14,11 +14,15 @@ the reranker deliberately does not see as a feature).
 
 The regularisation C, the depth k and α are chosen on the --dev features (ARQMath-2):
 dev scores of the selected setting are therefore optimistic; apply it unchanged to test.
+--cv k gives an honest dev estimate: topics are split into k folds, and each fold is
+reranked with the setting chosen on the other folds (the model weights never see dev).
+--cv-out writes that cross-validated run, for src.eval.compare against the first stage.
 
 Usage
 -----
     python -m src.rerank.train --train data/processed/rerank/train_judged.npz \\
-        --dev data/processed/rerank/dev_rrf_ft.npz --dev-run runs/rrf_ft_pa05_dev.tsv --split dev
+        --dev data/processed/rerank/dev_rrf_ft.npz --dev-run runs/rrf_ft_pa05_dev.tsv --split dev \\
+        --cv 5 --cv-out runs/reranked_cv_dev.tsv
     python -m src.rerank.train --apply data/processed/rerank/model.json \\
         --dev data/processed/rerank/test_rrf_ft.npz --dev-run runs/rrf_ft_pa05_test.tsv --out runs/reranked_test.tsv
 """
@@ -29,7 +33,7 @@ import argparse
 import itertools
 import json
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, List, Sequence, Tuple
 
 import numpy as np
 
@@ -125,6 +129,40 @@ def rerank(first_stage: Run, feat: dict, scores: np.ndarray, depth: int, alpha: 
     return out
 
 
+Setting = Tuple[float, int, float]          # C, depth, α
+PerTopic = Dict[str, Dict[str, float]]      # topic → measure → value
+
+
+def _mean(per_topic: PerTopic, topics: Sequence[str]) -> Dict[str, float]:
+    measures = next(iter(per_topic.values())).keys()
+    return {m: sum(per_topic[t][m] for t in topics) / len(topics) for m in measures}
+
+
+def select(results: Dict[Setting, PerTopic], topics: Sequence[str]) -> Setting:
+    """Best setting by mean (nDCG′, MAP′) over `topics`; ties → the earliest in grid order."""
+    def key(s: Setting) -> Tuple[float, float]:
+        m = _mean(results[s], topics)
+        return m["ndcg"], m["map"]
+    return max(results, key=key)
+
+
+def cross_validate(results: Dict[Setting, PerTopic], scores: Dict[float, np.ndarray], first_stage: Run,
+                   feat: dict, topics: Sequence[str], folds: int, seed: int = 0) -> Tuple[Run, List[Setting]]:
+    """Run whose held-out topics are reranked with the setting chosen on the other folds."""
+    topics = sorted(topics)
+    order = np.random.default_rng(seed).permutation(len(topics))  # same folds as src.eval.fuse --cv
+    fold_of = {topics[i]: k % folds for k, i in enumerate(order)}
+    run: Run = {}
+    chosen: List[Setting] = []
+    for f in range(folds):
+        setting = select(results, [t for t in topics if fold_of[t] != f])
+        chosen.append(setting)
+        C, depth, alpha = setting
+        full = rerank(first_stage, feat, scores[C], depth, alpha)
+        run.update({t: full[t] for t in topics if fold_of[t] == f and t in full})
+    return run, chosen
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--train", type=Path, help="judged training features (src.rerank.build --judged)")
@@ -136,7 +174,13 @@ def main():
     parser.add_argument("--model-out", type=Path, default=PROCESSED_DIR / "rerank/model.json")
     parser.add_argument("--out", type=Path, help="reranked run file")
     parser.add_argument("--run-id", default="reranked")
+    parser.add_argument("--cv", type=int, default=0, help="k-fold cross-validated dev estimate (training mode)")
+    parser.add_argument("--cv-out", type=Path, help="write the cross-validated run here")
     args = parser.parse_args()
+    if (args.cv or args.cv_out) and args.apply:
+        parser.error("--cv needs training mode, not --apply")
+    if args.cv_out and not args.cv:
+        parser.error("--cv-out needs --cv")
 
     dev = load_features(args.dev)
     first_stage, _ = read_run(args.dev_run)
@@ -154,29 +198,41 @@ def main():
         train = load_features(args.train)
         qrels = load_train_qrels(args.qrels, args.split)
         print(f"first stage on {args.split}: {evaluate(first_stage, qrels).summary()}")
-        best: Optional[Tuple[float, dict]] = None
+        topics = list(qrels)
+        models: Dict[float, LinearReranker] = {}
+        scores: Dict[float, np.ndarray] = {}
+        results: Dict[Setting, PerTopic] = {}
         for C in C_GRID:
-            model = fit(train, C)
-            scores = model.score(dev["X"])
+            models[C] = fit(train, C)
+            scores[C] = models[C].score(dev["X"])
             for depth in DEPTHS:
-                grid = [(a, evaluate(rerank(first_stage, dev, scores, depth, a), qrels).mean) for a in ALPHA_GRID]
-                a, m = max(grid, key=lambda x: (x[1]["ndcg"], x[1]["map"]))
-                pure = grid[-1][1]
+                row = {}
+                for a in ALPHA_GRID:
+                    row[(C, depth, a)] = evaluate(rerank(first_stage, dev, scores[C], depth, a), qrels).per_topic
+                results.update(row)
+                best_a = select(row, topics)
+                pure, m = _mean(row[(C, depth, ALPHA_GRID[-1])], topics), _mean(row[best_a], topics)
                 print(f"  C={C:<6} depth={depth:<4} rerank only: nDCG′ {pure['ndcg']:.4f} MAP′ {pure['map']:.4f}"
-                      f" | best α={a:.1f}: nDCG′ {m['ndcg']:.4f} MAP′ {m['map']:.4f} P′@10 {m['P_10']:.4f}")
-                if best is None or (m["ndcg"], m["map"]) > (best[0], best[1]["map"]):
-                    best = (m["ndcg"], {"C": C, "depth": depth, "alpha": a, **{k: m[k] for k in ("map",)}})
-        cfg = best[1]
-        model = fit(train, cfg["C"])
-        model.settings.update(depth=cfg["depth"], alpha=cfg["alpha"])
+                      f" | best α={best_a[2]:.1f}: nDCG′ {m['ndcg']:.4f} MAP′ {m['map']:.4f} P′@10 {m['P_10']:.4f}")
+        C, depth, alpha = select(results, topics)
+        model = models[C]
+        model.settings.update(depth=depth, alpha=alpha)
         args.model_out.parent.mkdir(parents=True, exist_ok=True)
         args.model_out.write_text(json.dumps(model.to_json(), indent=2))
-        print(f"\nselected C={cfg['C']}, depth={cfg['depth']}, α={cfg['alpha']} (chosen on {args.split}: optimistic)"
+        print(f"\nselected C={C}, depth={depth}, α={alpha} (chosen on {args.split}: optimistic)"
               f" → {args.model_out}")
         top = sorted(zip(model.weights, model.names), key=lambda x: -abs(x[0]))[:12]
         print("largest weights (standardised features): " + ", ".join(f"{n} {w:+.2f}" for w, n in top))
-        result_run = rerank(first_stage, dev, model.score(dev["X"]), cfg["depth"], cfg["alpha"])
+        result_run = rerank(first_stage, dev, scores[C], depth, alpha)
         print(f"reranked on {args.split}: {evaluate(result_run, qrels).summary()}")
+
+        if args.cv:
+            cv_run, chosen = cross_validate(results, scores, first_stage, dev, topics, args.cv)
+            print(f"\n{args.cv}-fold cross-validated on {args.split}: {evaluate(cv_run, qrels).summary()}")
+            print("fold settings (C, depth, α): " + ", ".join(f"({c}, {d}, {a})" for c, d, a in chosen))
+            if args.cv_out:
+                write_run(cv_run, args.cv_out, f"{args.run_id}_cv")
+                print(f"wrote {args.cv_out}")
 
     if args.out:
         write_run(result_run, args.out, args.run_id)

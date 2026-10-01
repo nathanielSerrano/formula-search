@@ -29,7 +29,7 @@ evaluation-first:
 | BM25 + GNN reciprocal rank fusion (dev: nDCG′ 0.589, MAP′ 0.378, P′@10 0.522; all p < 0.01 vs BM25) | done |
 | Pretraining variants (batch 2,048; `p_rename` 0.4): GNN alone +0.015–0.017 nDCG′ (p < 0.05), no gain fused | done |
 | Supervised fine-tuning (pairs, lr 5e-5; dev fused: nDCG′ 0.599, MAP′ 0.388, P′@10 0.522) | done |
-| Structural reranker | implemented (tested locally); server run next |
+| Structural reranker on RRF (dev, setting chosen on dev: nDCG′ 0.611, MAP′ 0.408, P′@10 0.541; nDCG′/MAP′ p < 0.05 vs RRF) | done; cross-validated estimate next |
 
 Code under `src/task3/` is from the earlier prototype and is kept only for reference while it is replaced.
 It targets the old index layout and should not be run.
@@ -224,8 +224,12 @@ ARQMath-1 judged pairs; regularisation, depth and interpolation with the first s
 python -m src.rerank.build --split train --judged --qrels all --name train_judged
 python -m src.rerank.build --split dev --run runs/rrf_ft_pa05_dev.tsv --depth 200 --name dev_rrf_ft
 python -m src.rerank.train --train data/processed/rerank/train_judged.npz --dev data/processed/rerank/dev_rrf_ft.npz \
-    --dev-run runs/rrf_ft_pa05_dev.tsv --split dev --out runs/reranked_dev.tsv
+    --dev-run runs/rrf_ft_pa05_dev.tsv --split dev --out runs/reranked_dev.tsv --cv 5 --cv-out runs/reranked_cv_dev.tsv
+python -m src.eval.compare runs/rrf_ft_pa05_dev.tsv runs/reranked_cv_dev.tsv --split dev
 ```
+
+The selected setting's dev score is optimistic (chosen on the same topics); `--cv 5` reranks each fold of
+dev topics with the setting chosen on the other folds, an honest estimate to report and compare.
 
 Tune on `dev` only. Run `search --split test` and evaluate on `test` only for final numbers.
 
