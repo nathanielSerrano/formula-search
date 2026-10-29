@@ -1,4 +1,5 @@
-# Formula Search on ARQMath
+# MathGRAFT - Formula Search on ARQMath
+**G**raph **R**etrieval over **A**ppearance and **F**unction **T**rees
 
 Final project for **COS 587 – Introduction to Information Retrieval**, University of Southern Maine.
 
